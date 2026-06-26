@@ -1,0 +1,33 @@
+{
+  "name": "chatgpt-universal-exporter",
+  "version": "1.0.0",
+  "description": "Browser-based ChatGPT conversation exporter with Markdown output and an offline ZIP reader.",
+  "license": "MIT",
+  "author": "huhu",
+  "type": "commonjs",
+  "private": false,
+  "scripts": {
+    "check": "node --check Tampermonkey.js",
+    "test": "node test/filename.test.js && node test/reader.test.js",
+    "verify": "npm run check && npm test"
+  },
+  "keywords": [
+    "chatgpt",
+    "exporter",
+    "tampermonkey",
+    "markdown",
+    "offline-reader",
+    "backup"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OwlCt/ChatGPT-Export.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OwlCt/ChatGPT-Export/issues"
+  },
+  "homepage": "https://github.com/OwlCt/ChatGPT-Export#readme",
+  "engines": {
+    "node": ">=18"
+  }
+}
