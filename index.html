@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ChatGPT Export Reader</title>
+  <link rel="icon" href="openai.svg" type="image/svg+xml">
   <script>
     (() => {
       try {
@@ -26,7 +27,7 @@
       color-scheme: dark;
     }
   </style>
-  <link rel="stylesheet" href="assets/reader.css?v=print-pdf-20260628-2">
+  <link rel="stylesheet" href="assets/reader.css?v=mobile-header-openai-20260628">
 </head>
 <body>
   <div class="app" id="app">
@@ -42,7 +43,7 @@
       <div class="sidebar-panel" id="sidebarPanel">
         <div class="sidebar-scroll" id="sidebarScroll">
           <div class="brand">
-            <div class="brand-mark" aria-hidden="true">C</div>
+            <span class="brand-mark" aria-hidden="true"></span>
             <div class="brand-title">ChatGPT</div>
             <button class="sidebar-collapse-button" id="collapseSidebarButton" type="button" title="关闭边栏" aria-label="关闭边栏"></button>
           </div>
@@ -70,7 +71,7 @@
         <div class="mobile-topbar">
           <button class="button icon" id="openSidebarButton" type="button" title="打开会话列表" aria-label="打开会话列表">☰</button>
           <div class="mobile-title" id="mobileTitle">ChatGPT Export Reader</div>
-          <button class="button icon" id="mobileChooseButton" type="button" title="选择 ZIP" aria-label="选择 ZIP">+</button>
+          <button class="button mobile-pdf-button" id="mobilePdfButton" type="button" title="导出 PDF" aria-label="导出 PDF" data-i18n-attr="title:actions.exportPdf;aria-label:actions.exportPdf"></button>
         </div>
 
         <section class="empty-state" id="emptyState">
@@ -87,7 +88,7 @@
               <h1 class="thread-title" id="threadTitle"></h1>
               <div class="thread-meta" id="threadMeta"></div>
             </div>
-            <button class="button thread-pdf-button" id="exportPdfButton" type="button" data-i18n="actions.exportPdf">导出 PDF</button>
+            <button class="button thread-pdf-button" id="exportPdfButton" type="button" title="导出 PDF" aria-label="导出 PDF" data-i18n-attr="title:actions.exportPdf;aria-label:actions.exportPdf"></button>
           </header>
           <div class="messages" id="messages"></div>
         </section>

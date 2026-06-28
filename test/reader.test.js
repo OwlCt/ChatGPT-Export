@@ -13,6 +13,8 @@ const i18nIndex = fs.readFileSync('assets/i18n/index.js', 'utf8');
 assert.match(indexHtml, /<link rel="stylesheet" href="assets\/reader\.css(?:\?[^"]+)?">/, 'reader should load external CSS');
 assert.match(indexHtml, /localStorage\.getItem\("chatgpt-export-reader\.settings\.v1"\)/, 'reader should apply saved theme before CSS loads');
 assert.match(indexHtml, /document\.documentElement\.dataset\.theme/, 'reader should set initial theme on the root element');
+assert.match(indexHtml, /<link rel="icon" href="openai\.svg" type="image\/svg\+xml">/, 'reader should use the OpenAI icon as its favicon');
+assert.match(indexHtml, /<span class="brand-mark" aria-hidden="true"><\/span>/, 'reader should show a CSS-colored OpenAI icon in the sidebar brand');
 assert.match(indexHtml, /vendor\/jszip\.min\.js/, 'reader should load local JSZip');
 assert.doesNotMatch(indexHtml, /vendor\/pdf-lib\.min\.js/, 'reader should not load pdf-lib for browser print export');
 assert.doesNotMatch(indexHtml, /vendor\/fontkit\.umd\.min\.js/, 'reader should not load fontkit for browser print export');
@@ -36,6 +38,8 @@ assert.match(indexHtml, /id="settingsClearButton"/, 'settings should contain the
 assert.match(indexHtml, /id="appDialogModal"/, 'reader should include a reusable app-styled dialog modal');
 assert.doesNotMatch(indexHtml, /rememberImportChoiceSetting/, 'settings should not expose the import dialog remember checkbox');
 assert.match(indexHtml, /id="exportPdfButton"/, 'reader should expose PDF export action');
+assert.match(indexHtml, /id="mobilePdfButton"/, 'mobile topbar should expose PDF export action');
+assert.doesNotMatch(indexHtml, /mobileChooseButton/, 'mobile topbar should not keep the old ZIP plus button');
 assert.match(indexHtml, /id="mediaLibraryButton"/, 'sidebar should include library');
 assert.doesNotMatch(indexHtml, /id="filesButton"/, 'sidebar should not include a files entry');
 assert.match(indexHtml, /id="assetLibrary"/, 'reader should include an asset library page');
@@ -49,6 +53,15 @@ assert.match(indexHtml, /id="confirmImportChoiceButton"/, 'import choice should 
 assert.match(indexHtml, /dialog-actions/, 'dialogs should use a footer action area');
 assert.match(css, /:root\[data-theme="dark"\]/, 'reader should support dark theme variables');
 assert.match(css, /settings-modal/, 'reader should style settings modal');
+assert.match(css, /\.brand-mark\s*\{[\s\S]*width: 24px;[\s\S]*height: 24px;[\s\S]*mask: url\("\.\.\/openai\.svg"\)/, 'sidebar brand icon should use the OpenAI icon mask');
+assert.match(css, /:root\[data-theme="dark"\] \.brand-mark\s*\{[\s\S]*background: #fff/, 'dark mode brand icon should render white');
+assert.match(css, /\.thread-header\s*\{[\s\S]*border-bottom: 1px solid var\(--border-soft\)/, 'thread header should have a divider');
+assert.match(css, /\.thread-pdf-button\s*\{[\s\S]*width: 36px;[\s\S]*height: 36px/, 'desktop PDF export should be a compact icon button');
+assert.match(css, /\.reader\.visible \.thread-pdf-button\s*\{[\s\S]*position: absolute;[\s\S]*right: 24px/, 'desktop PDF export should sit at the viewport top right');
+assert.match(css, /\.mobile-pdf-button\s*\{[\s\S]*width: 36px;[\s\S]*height: 36px/, 'mobile PDF export should be a compact icon button');
+assert.match(css, /@media \(max-width: 840px\)[\s\S]*\.thread-header\s*\{[\s\S]*display: none;/, 'mobile should hide the second thread header');
+assert.match(css, /@media \(max-width: 840px\)[\s\S]*\.reader\.visible \.thread-pdf-button\s*\{[\s\S]*display: none;/, 'mobile should hide the desktop PDF export button');
+assert.match(css, /\.checkbox-field\s*\{[\s\S]*display: flex !important;[\s\S]*flex-direction: row !important/, 'PDF checkbox labels should stay on the same row');
 assert.match(css, /\.danger-button/, 'clear import should be styled as a danger action');
 assert.match(css, /\.asset-library/, 'reader should style the asset library page');
 assert.match(css, /\.library-table/, 'asset library should support list view');
@@ -60,6 +73,12 @@ assert.match(css, /\.dialog-button\.primary/, 'dialogs should use primary pill a
 assert.match(css, /\.dialog-button\.secondary/, 'dialogs should use secondary pill action buttons');
 
 assert.match(app, /const DEFAULT_SETTINGS = \{[\s\S]*language: "auto"[\s\S]*theme: "system"[\s\S]*defaultImportMode: "append"/, 'default settings should be auto language, system theme, append import');
+assert.match(app, /function shareIconSvg/, 'reader should provide a share-style icon for mobile PDF export');
+assert.match(app, /function importIconSvg\(\) \{[\s\S]*M7 4\.75h7\.2L17 7\.55/, 'import ZIP should use a file-import icon');
+assert.match(app, /dom\.mobilePdfButton\.innerHTML = shareIconSvg\(\)/, 'mobile PDF export should render as an icon');
+assert.match(app, /dom\.exportPdfButton\.innerHTML = shareIconSvg\(\)/, 'desktop PDF export should render as the same share icon');
+assert.match(app, /dom\.mobilePdfButton\.addEventListener\("click", openPdfExportModal\)/, 'mobile PDF export should open the PDF dialog');
+assert.doesNotMatch(app, /mobileChooseButton/, 'mobile ZIP plus button wiring should be removed');
 assert.match(app, /const DB_NAME = "chatgpt-export-reader"/, 'reader should use IndexedDB cache');
 assert.match(app, /db\.createObjectStore\("conversations", \{ keyPath: "id" \}\)/, 'IndexedDB should store conversations by id');
 assert.match(app, /db\.createObjectStore\("assets", \{ keyPath: "path" \}\)/, 'IndexedDB should store assets by path');

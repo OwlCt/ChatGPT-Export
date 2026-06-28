@@ -16,6 +16,8 @@ const testExport = `
         processContentReferences,
         addFileIfMissing,
         cleanMessageContent,
+        detectScriptLocale,
+        getScriptTranslation,
     };
 `;
 script = script.replace(/\n\}\)\(\);\s*$/, `${testExport}\n})();`);
@@ -72,6 +74,17 @@ vm.runInNewContext(script, sandbox, { filename: 'Tampermonkey.js' });
 
 const helpers = window.ChatGPTExporter.__test;
 assert.ok(helpers, 'test helpers should be exposed in test mode');
+
+assert.equal(helpers.detectScriptLocale(['zh-CN']), 'zh-CN');
+assert.equal(helpers.detectScriptLocale(['zh-TW']), 'zh-CN');
+assert.equal(helpers.detectScriptLocale(['en-GB']), 'en-US');
+assert.equal(helpers.detectScriptLocale(['fr-FR']), 'en-US');
+assert.equal(helpers.getScriptTranslation('button.export', {}, 'zh-CN'), '导出对话');
+assert.equal(helpers.getScriptTranslation('button.export', {}, 'en-US'), 'Export Conversations');
+assert.equal(
+  helpers.getScriptTranslation('status.listSummary', { total: 3, filtered: 2, visible: 1, selected: 1 }, 'en-US'),
+  '3 total, 2 filtered, showing 1, selected 1'
+);
 
 assert.equal(
   helpers.sanitizeFilename(' ../bad/name:*? "with" <chars>. ', 'fallback'),

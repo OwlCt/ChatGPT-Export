@@ -186,8 +186,7 @@
       position: sticky;
       top: 0;
       z-index: 5;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      display: flex;
       align-items: center;
       gap: 10px;
       padding: 10px 10px 10px 14px;
@@ -196,10 +195,20 @@
     }
 
     .brand-mark {
-      display: none;
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      background: var(--text);
+      -webkit-mask: url("../openai.svg") center / contain no-repeat;
+      mask: url("../openai.svg") center / contain no-repeat;
+    }
+
+    :root[data-theme="dark"] .brand-mark {
+      background: #fff;
     }
 
     .brand-title {
+      flex: 1 1 auto;
       min-width: 0;
       font-size: 20px;
       font-weight: 700;
@@ -439,6 +448,30 @@
       line-height: 1;
     }
 
+    .mobile-pdf-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: 8px;
+      color: var(--muted-strong);
+      background: transparent;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .mobile-pdf-button:hover {
+      background: var(--surface-strong);
+    }
+
+    .mobile-pdf-button svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+    }
+
     .button:disabled {
       cursor: default;
       opacity: 0.52;
@@ -561,13 +594,17 @@
       position: sticky;
       top: 0;
       z-index: 8;
+      grid-template-columns: 36px minmax(0, 1fr) auto;
       align-items: center;
-      justify-content: space-between;
+      gap: 10px;
+      height: 48px;
       min-height: 48px;
+      flex: 0 0 48px;
       padding: 8px 12px;
       background: var(--topbar-bg);
       border-bottom: 1px solid var(--border-soft);
       backdrop-filter: blur(10px);
+      transform: translateZ(0);
     }
 
     .mobile-title {
@@ -634,8 +671,9 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 16px;
-      padding: 18px max(24px, calc((100% - var(--content-width)) / 2)) 12px;
+      padding: 18px max(144px, calc((100% - var(--content-width)) / 2 + 120px)) 12px max(24px, calc((100% - var(--content-width)) / 2));
       background: var(--header-bg);
+      border-bottom: 1px solid var(--border-soft);
       backdrop-filter: blur(10px);
     }
 
@@ -658,13 +696,32 @@
     .thread-pdf-button {
       flex: 0 0 auto;
       display: none;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
       height: 36px;
-      padding: 0 12px;
-      white-space: nowrap;
+      padding: 0;
+      border-radius: 8px;
+      color: var(--muted-strong);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .thread-pdf-button:hover {
+      background: var(--surface-strong);
+    }
+
+    .thread-pdf-button svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
     }
 
     .reader.visible .thread-pdf-button {
       display: inline-flex;
+      position: absolute;
+      top: 14px;
+      right: 24px;
     }
 
     .thread-meta {
@@ -2810,6 +2867,7 @@
     }
 
     .checkbox-field {
+      display: flex !important;
       flex-direction: row !important;
       align-items: center !important;
       gap: 10px;
@@ -2882,21 +2940,24 @@
       }
 
       .mobile-topbar {
-        display: flex;
+        display: grid;
       }
 
       .app:not(.sidebar-collapsed) .mobile-topbar {
-        display: flex;
+        display: grid;
       }
 
       .thread-header {
-        top: 48px;
-        padding: 14px 16px 10px;
+        display: none;
       }
 
       .thread-title {
         font-size: 16px;
         text-align: left;
+      }
+
+      .reader.visible .thread-pdf-button {
+        display: none;
       }
 
       .message-inner {

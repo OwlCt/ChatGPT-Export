@@ -32,7 +32,7 @@
         mediaLibraryButton: document.getElementById("mediaLibraryButton"),
         railMediaLibraryButton: document.getElementById("railMediaLibraryButton"),
         railSettingsButton: document.getElementById("railSettingsButton"),
-        mobileChooseButton: document.getElementById("mobileChooseButton"),
+        mobilePdfButton: document.getElementById("mobilePdfButton"),
         emptyChooseButton: document.getElementById("emptyChooseButton"),
         settingsButton: document.getElementById("settingsButton"),
         fileInput: document.getElementById("fileInput"),
@@ -2232,7 +2232,7 @@
       }
 
       function importIconSvg() {
-        return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V4" stroke-width="1.8" stroke-linecap="round"></path><path d="M8 8l4-4 4 4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" stroke-width="1.8" stroke-linecap="round"></path></svg>';
+        return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4.75h7.2L17 7.55v11.7H7V4.75Z" stroke-width="1.7" stroke-linejoin="round"></path><path d="M14 4.75V8h3" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 10.5v5" stroke-width="1.8" stroke-linecap="round"></path><path d="m9.7 13.2 2.3 2.3 2.3-2.3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
       }
 
       function searchIconSvg() {
@@ -2291,6 +2291,10 @@
         return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10" stroke-width="1.8" stroke-linecap="round"></path><path d="M8 10l4 4 4-4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M5 19h14" stroke-width="1.8" stroke-linecap="round"></path></svg>';
       }
 
+      function shareIconSvg() {
+        return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V4" stroke-width="1.8" stroke-linecap="round"></path><path d="M8 8l4-4 4 4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M6 13v4.25A2.75 2.75 0 0 0 8.75 20h6.5A2.75 2.75 0 0 0 18 17.25V13" stroke-width="1.8" stroke-linecap="round"></path></svg>';
+      }
+
       function globeIconSvg() {
         return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke-width="1.8"></circle><path d="M4.5 12h15M12 4c2 2.2 3 4.8 3 8s-1 5.8-3 8M12 4c-2 2.2-3 4.8-3 8s1 5.8 3 8" stroke-width="1.4" stroke-linecap="round"></path></svg>';
       }
@@ -2330,6 +2334,12 @@
         dom.railSettingsButton.setAttribute("aria-label", settingsLabel);
         dom.railSettingsButton.dataset.tooltip = settingsLabel;
         dom.searchModalIcon.innerHTML = searchIconSvg();
+        dom.mobilePdfButton.innerHTML = shareIconSvg();
+        dom.mobilePdfButton.title = t("actions.exportPdf");
+        dom.mobilePdfButton.setAttribute("aria-label", t("actions.exportPdf"));
+        dom.exportPdfButton.innerHTML = shareIconSvg();
+        dom.exportPdfButton.title = t("actions.exportPdf");
+        dom.exportPdfButton.setAttribute("aria-label", t("actions.exportPdf"));
       }
 
       function groupMessages(messages) {
@@ -4081,7 +4091,7 @@
 
       dom.chooseZipButton.addEventListener("click", openFilePicker);
       dom.railChooseZipButton.addEventListener("click", openFilePicker);
-      dom.mobileChooseButton.addEventListener("click", openFilePicker);
+      dom.mobilePdfButton.addEventListener("click", openPdfExportModal);
       dom.emptyChooseButton.addEventListener("click", openFilePicker);
       dom.searchButton.addEventListener("click", openSearchModal);
       dom.railSearchButton.addEventListener("click", openSearchModal);
