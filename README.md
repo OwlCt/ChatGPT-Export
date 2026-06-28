@@ -173,7 +173,6 @@ Repository layout:
 |-- assets/
 |   |-- reader.css
 |   |-- reader.js
-|   |-- fonts/
 |   `-- i18n/
 |-- vendor/
 |-- test/
