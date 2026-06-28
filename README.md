@@ -101,7 +101,7 @@ Main responsibilities:
 
 ### Static Reader
 
-`index.html` is a static, local-first web app. It vendors JSZip, pdf-lib, and fontkit from local files, parses exported ZIP archives, persists imported content in IndexedDB, and exports the current conversation as a text-selectable PDF.
+`index.html` is a static, local-first web app. It vendors JSZip from a local file, parses exported ZIP archives, persists imported content in IndexedDB, and exports the current conversation through a dedicated browser print/PDF layout.
 
 Main responsibilities:
 
@@ -112,7 +112,7 @@ Main responsibilities:
 - Conversation search and sidebar grouping.
 - Message rendering, code/table copy controls, image preview, and source panels.
 - English/Chinese UI, theme settings, and import preferences.
-- Current-conversation PDF export.
+- Current-conversation PDF export with images and source references.
 - User-turn counting and long-conversation jump navigation.
 
 ### Tests
@@ -137,7 +137,7 @@ https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 ```
 
-The static reader vendors JSZip `3.10.1`, pdf-lib, and fontkit under `vendor/`; PDF font assets live under `assets/fonts/`. Runtime dependency loading does not require a CDN.
+The static reader vendors JSZip `3.10.1` under `vendor/`. Runtime dependency loading does not require a CDN.
 
 ## Known Limits
 
@@ -146,7 +146,7 @@ The static reader vendors JSZip `3.10.1`, pdf-lib, and fontkit under `vendor/`; 
 - Image and attachment export depends on metadata available in each conversation.
 - Some team workspace detection may require opening a team conversation first.
 - Browsers may delete IndexedDB data in private browsing, low-storage situations, or when site data is cleared.
-- PDF export prioritizes selectable text, so the PDF layout is simpler than the web reading view.
+- PDF export opens a dedicated print window and uses the browser's print dialog to save PDF files. This keeps text selectable and lets the browser handle pagination, images, and source-reference layout.
 
 ## Acknowledgements
 

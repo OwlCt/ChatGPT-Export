@@ -26,7 +26,7 @@
       color-scheme: dark;
     }
   </style>
-  <link rel="stylesheet" href="assets/reader.css?v=pdf-font-full-20260628">
+  <link rel="stylesheet" href="assets/reader.css?v=print-pdf-20260628-2">
 </head>
 <body>
   <div class="app" id="app">
@@ -227,6 +227,49 @@
     </div>
   </div>
 
+  <div class="pdf-export-modal" id="pdfExportModal" aria-hidden="true">
+    <div class="pdf-export-dialog" role="dialog" aria-modal="true" aria-labelledby="pdfExportTitle">
+      <div class="dialog-content">
+        <div class="settings-head">
+          <h2 class="settings-title" id="pdfExportTitle" data-i18n="pdfExport.title">Export PDF</h2>
+          <button class="settings-close" id="pdfExportCloseButton" type="button" aria-label="Close" data-i18n-attr="aria-label:actions.close">&times;</button>
+        </div>
+        <div class="settings-body">
+          <label class="settings-field">
+            <span data-i18n="pdfExport.theme">Theme</span>
+            <select id="pdfThemeSelect">
+              <option value="light" data-i18n="pdfExport.themeLight">Light</option>
+              <option value="dark" data-i18n="pdfExport.themeDark">Dark</option>
+              <option value="auto" data-i18n="pdfExport.themeAuto">Follow current</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span data-i18n="pdfExport.codeStyle">Code block style</span>
+            <select id="pdfCodeStyleSelect">
+              <option value="full" data-i18n="pdfExport.codeFull">Full (with syntax highlighting)</option>
+              <option value="plain" data-i18n="pdfExport.codePlain">Plain text</option>
+            </select>
+          </label>
+          <label class="settings-field checkbox-field">
+            <input id="pdfIncludeImages" type="checkbox" checked>
+            <span data-i18n="pdfExport.includeImages">Include images</span>
+          </label>
+          <label class="settings-field checkbox-field">
+            <input id="pdfIncludeSources" type="checkbox" checked>
+            <span data-i18n="pdfExport.includeSources">Include source references</span>
+          </label>
+        </div>
+        <div class="pdf-export-preview-hint">
+          <p data-i18n="pdfExport.hint">After clicking Export, the browser print dialog will open where you can further configure paper size, margins, scaling, etc.</p>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" id="pdfExportCancelButton" type="button" data-i18n="actions.cancel">Cancel</button>
+        <button class="dialog-button primary" id="pdfExportConfirmButton" type="button" data-i18n="pdfExport.export">Export</button>
+      </div>
+    </div>
+  </div>
+
   <div class="import-summary-popup" id="importSummaryPopup" role="status" aria-live="polite" aria-hidden="true">
     <div class="import-summary-name" id="importSummaryName"></div>
     <div class="import-summary-stats" id="importSummaryStats"></div>
@@ -235,11 +278,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="vendor/jszip.min.js"></script>
-  <script src="vendor/pdf-lib.min.js"></script>
-  <script src="vendor/fontkit.umd.min.js"></script>
-  <script src="assets/i18n/en-US.js?v=pdf-font-full-20260628"></script>
-  <script src="assets/i18n/zh-CN.js?v=pdf-font-full-20260628"></script>
-  <script src="assets/i18n/index.js?v=pdf-font-full-20260628"></script>
-  <script src="assets/reader.js?v=pdf-font-full-20260628"></script>
+  <script src="assets/i18n/en-US.js?v=print-pdf-20260628-2"></script>
+  <script src="assets/i18n/zh-CN.js?v=print-pdf-20260628-2"></script>
+  <script src="assets/i18n/index.js?v=print-pdf-20260628-2"></script>
+  <script src="assets/reader.js?v=print-pdf-20260628-2"></script>
 </body>
 </html>

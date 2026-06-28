@@ -2761,6 +2761,68 @@
       cursor: progress;
     }
 
+    .pdf-export-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--modal-overlay);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 180ms ease, visibility 0s linear 180ms;
+    }
+
+    .pdf-export-modal[aria-hidden="false"] {
+      opacity: 1;
+      visibility: visible;
+      transition-delay: 0s;
+    }
+
+    .pdf-export-dialog {
+      width: min(440px, calc(100vw - 32px));
+      max-height: calc(100vh - 64px);
+      overflow: auto;
+      border-radius: 16px;
+      background: var(--dialog-bg);
+      box-shadow: var(--shadow);
+      transform: translateY(12px) scale(0.97);
+      transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .pdf-export-modal[aria-hidden="false"] .pdf-export-dialog {
+      transform: translateY(0) scale(1);
+    }
+
+    .pdf-export-preview-hint {
+      padding: 0 24px 8px;
+    }
+
+    .pdf-export-preview-hint p {
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .checkbox-field {
+      flex-direction: row !important;
+      align-items: center !important;
+      gap: 10px;
+    }
+
+    .checkbox-field input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     @media (max-width: 840px) {
       body {
         overflow: hidden;

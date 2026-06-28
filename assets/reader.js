@@ -99,6 +99,14 @@
         appDialogInput: document.getElementById("appDialogInput"),
         appDialogCancelButton: document.getElementById("appDialogCancelButton"),
         appDialogConfirmButton: document.getElementById("appDialogConfirmButton"),
+        pdfExportModal: document.getElementById("pdfExportModal"),
+        pdfExportCloseButton: document.getElementById("pdfExportCloseButton"),
+        pdfExportCancelButton: document.getElementById("pdfExportCancelButton"),
+        pdfExportConfirmButton: document.getElementById("pdfExportConfirmButton"),
+        pdfThemeSelect: document.getElementById("pdfThemeSelect"),
+        pdfCodeStyleSelect: document.getElementById("pdfCodeStyleSelect"),
+        pdfIncludeImages: document.getElementById("pdfIncludeImages"),
+        pdfIncludeSources: document.getElementById("pdfIncludeSources"),
         toast: document.getElementById("toast")
       };
 
@@ -141,8 +149,7 @@
         appDialogResolver: null,
         importSummaryTimer: 0,
         toastTimer: 0,
-        turnJumpScrollFrame: 0,
-        pdfFontFallbackPromise: null
+        turnJumpScrollFrame: 0
       };
 
       function escapeHtml(value) {
@@ -189,7 +196,7 @@
       function localeMeta(code = state.localeCode) {
         return localeRegistry.find(locale => locale.code === code) ||
           localeRegistry.find(locale => locale.code === fallbackLocaleCode) ||
-          { code: fallbackLocaleCode, dateLocale: fallbackLocaleCode, dir: "ltr", pdfFont: "assets/fonts/NotoSansSC-Regular.ttf" };
+          { code: fallbackLocaleCode, dateLocale: fallbackLocaleCode, dir: "ltr" };
       }
 
       function t(key, params = {}) {
@@ -3456,274 +3463,603 @@
         return false;
       }
 
-      function pdfPlainText(markdown) {
-        return cleanMessageContent(markdown || "")
-          .replace(/<!--\s*(?:image|file):[^>]+-->/g, " ")
-          .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
-          .replace(/\[([^\]]+)\]\[\d+\]/g, "$1")
-          .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-          .replace(/^\s{0,3}>\s?/gm, "")
-          .replace(/\*\*([^*]+)\*\*/g, "$1")
-          .replace(/`([^`]+)`/g, "$1")
-          .replace(/\t/g, "    ")
-          .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim();
-      }
-
-      function splitPdfText(text, font, size, maxWidth) {
-        const lines = [];
-        const paragraphs = String(text || "").replace(/\r\n?/g, "\n").split("\n");
-        for (const paragraph of paragraphs) {
-          if (!paragraph.trim()) {
-            lines.push("");
-            continue;
-          }
-          let current = "";
-          for (const char of paragraph) {
-            const candidate = current + char;
-            if (font.widthOfTextAtSize(candidate, size) <= maxWidth || !current) {
-              current = candidate;
-            } else {
-              lines.push(current);
-              current = char;
-            }
-          }
-          if (current) lines.push(current);
-        }
-        return lines;
-      }
-
-      async function fetchArrayBuffer(url) {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.arrayBuffer();
-      }
-
-      function base64ToArrayBuffer(value) {
-        const normalized = String(value || "")
-          .replace(/^data:[^,]*,/i, "")
-          .replace(/\s+/g, "");
-        const binary = atob(normalized);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        return bytes.buffer;
-      }
-
-      function loadPdfFontFallbackScript() {
-        if (window.ChatGPTReaderPdfFonts) return Promise.resolve();
-        if (state.pdfFontFallbackPromise) return state.pdfFontFallbackPromise;
-        state.pdfFontFallbackPromise = new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "assets/fonts/pdf-fonts.js?v=pdf-font-full-20260628";
-          script.async = true;
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error(t("error.pdfMissingFont")));
-          document.head.appendChild(script);
-        });
-        return state.pdfFontFallbackPromise;
-      }
-
-      async function loadPdfFontBytes() {
-        const fontPath = state.localeMeta.pdfFont || "assets/fonts/NotoSansSC-Regular.ttf";
-        let fetchError = null;
-        if (location.protocol !== "file:") {
-          try {
-            return await fetchArrayBuffer(fontPath);
-          } catch (err) {
-            fetchError = err;
-          }
-        }
-        await loadPdfFontFallbackScript();
-        const fonts = window.ChatGPTReaderPdfFonts || {};
-        const fallback = fonts[fontPath] || fonts[basename(fontPath)] || fonts.NotoSansSCRegular;
-        if (!fallback) throw fetchError || new Error(t("error.pdfMissingFont"));
-        return base64ToArrayBuffer(fallback);
-      }
-
-      async function pngBytesFromImageSource(src) {
-        const pngBlob = await imageSourceToPngBlob(src);
-        return await pngBlob.arrayBuffer();
-      }
-
-      async function embedPdfImage(pdfDoc, image) {
-        const src = image.localUrl || image.url || "";
-        if (!src) return null;
-        const type = String(image.content_type || image.mimeType || mimeFromPath(image.filename || image.localPath || "")).toLowerCase();
-        const isPng = type.includes("png") || /\.png(?:$|\?)/i.test(src);
-        const isJpeg = type.includes("jpeg") || type.includes("jpg") || /\.(jpe?g)(?:$|\?)/i.test(src);
-        try {
-          const pngBytes = await pngBytesFromImageSource(src);
-          return await pdfDoc.embedPng(pngBytes);
-        } catch (err) {
-          console.warn("PDF image canvas conversion failed; trying direct embed", err);
-        }
-        if (isPng || isJpeg) {
-          const bytes = await fetchArrayBuffer(src);
-          return isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-        }
-        return null;
-      }
-
-      function markdownImageForPdf(alt, src, baseDir) {
-        const raw = String(src || "").trim().replace(/^<|>$/g, "");
-        const safe = safeUrl(raw);
-        if (safe) {
-          return {
-            localUrl: safe,
-            dispositionLabel: alt || "image",
-            filename: basename(raw),
-            mimeType: mimeFromPath(raw)
-          };
-        }
-        const path = joinZipPath(baseDir || "", decodeURIComponentSafe(raw));
-        const record = state.imageByFullPath.get(path);
-        if (!record?.url) return null;
-        return {
-          localUrl: record.url,
-          localPath: record.path,
-          filename: record.name,
-          mimeType: record.mimeType || mimeFromPath(record.name),
-          dispositionLabel: alt || assetRecordDisplayName(record) || "image"
-        };
-      }
-
-      function collectPdfImages(message, baseDir) {
-        const images = [];
-        const seen = new Set();
-        const add = image => {
-          const src = image?.localUrl || image?.url || "";
-          if (!src) return;
-          const key = image.localPath || image.asset_pointer || src;
-          if (seen.has(key)) return;
-          seen.add(key);
-          images.push(image);
-        };
-        if (Array.isArray(message.images)) {
-          message.images.forEach(add);
-        }
-        String(message.content || "").replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
-          add(markdownImageForPdf(alt, src, baseDir));
-          return "";
-        });
-        return images;
-      }
-
-      async function exportCurrentConversationPdf() {
+      function openPdfExportModal() {
         const conversation = getSelectedConversation();
         if (!conversation) {
           showToast(t("error.pdfNoConversation"));
           return;
         }
-        if (!window.PDFLib?.PDFDocument || !window.fontkit) {
-          showToast(t("error.pdfMissingLibrary"));
+        dom.pdfThemeSelect.value = "auto";
+        dom.pdfExportModal.setAttribute("aria-hidden", "false");
+      }
+
+      function closePdfExportModal() {
+        dom.pdfExportModal.setAttribute("aria-hidden", "true");
+      }
+
+      function pdfExportOptions() {
+        const selectedTheme = dom.pdfThemeSelect.value || "auto";
+        return {
+          theme: selectedTheme === "auto" ? (document.documentElement.dataset.theme || "light") : selectedTheme,
+          codeStyle: dom.pdfCodeStyleSelect.value || "full",
+          includeImages: Boolean(dom.pdfIncludeImages.checked),
+          includeSources: Boolean(dom.pdfIncludeSources.checked)
+        };
+      }
+
+      function pdfExportRoleLabel(role) {
+        return role === "user" ? t("pdfExport.user") : t("pdfExport.assistant");
+      }
+
+      function renderPdfExportSources(sources) {
+        if (!sources.length) return "";
+        const items = sources.map((source, index) => {
+          const link = resolveMarkdownLink(source.url, source.baseDir || "");
+          const href = link.href || safeUrl(source.url || "");
+          const download = link.download || source.download || "";
+          const host = sourceHost(source.url || "") || (href && link.local ? t("source.localFile") : t("source.fallback"));
+          const title = source.title || source.label || host;
+          const summary = source.url || source.label || "";
+          const downloadAttr = download ? ` download="${escapeHtml(download)}"` : "";
+          const body = `
+            <span class="pdf-source-index">${index + 1}</span>
+            <span class="pdf-source-body">
+              <span class="pdf-source-host">${escapeHtml(host)}</span>
+              <span class="pdf-source-title">${escapeHtml(title)}</span>
+              ${summary ? `<span class="pdf-source-url">${escapeHtml(summary)}</span>` : ""}
+            </span>
+          `;
+          return href
+            ? `<li><a href="${escapeHtml(href)}" target="_blank" rel="noreferrer"${downloadAttr}>${body}</a></li>`
+            : `<li><span>${body}</span></li>`;
+        }).join("");
+        return `
+          <section class="pdf-message-sources">
+            <h3>${escapeHtml(t("source.title"))}</h3>
+            <ol>${items}</ol>
+          </section>
+        `;
+      }
+
+      function renderPdfExportMessageGroup(group, groupIndex, conversation, options) {
+        const rendered = group.messages.map(message => renderMessageContent(message, conversation.baseDir));
+        const sources = mergeSources(rendered.flatMap(item => item.sources));
+        sources.forEach(source => { source.baseDir = source.baseDir || conversation.baseDir || ""; });
+        const role = group.role === "user" ? "user" : "assistant";
+        const body = rendered.map(item => item.html).join("");
+        const sourceList = options.includeSources ? renderPdfExportSources(sources) : "";
+        return `
+          <article class="pdf-message ${role}" data-group-index="${groupIndex}">
+            <div class="pdf-message-role">${escapeHtml(pdfExportRoleLabel(role))}</div>
+            <div class="pdf-message-content">${body || `<p class="pdf-empty-message">${escapeHtml(t("messages.empty"))}</p>`}</div>
+            ${sourceList}
+          </article>
+        `;
+      }
+
+      function pdfExportDocumentStyles() {
+        return `
+          @page { size: A4; margin: 14mm 15mm; }
+          * { box-sizing: border-box; }
+          html { background: #fff; color: #202123; }
+          body {
+            margin: 0;
+            background: #fff;
+            color: #202123;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+            font-size: 13px;
+            line-height: 1.65;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+          }
+          body.dark {
+            background: #151515;
+            color: #ececf1;
+          }
+          a { color: #0b57d0; text-decoration: underline; }
+          body.dark a { color: #8ab4f8; }
+          .pdf-export-doc {
+            width: 100%;
+            max-width: 760px;
+            margin: 0 auto;
+          }
+          .pdf-export-header {
+            margin: 0 0 16px;
+            padding: 0 0 12px;
+            border-bottom: 2px solid #e5e7eb;
+          }
+          body.dark .pdf-export-header { border-bottom-color: #3f4048; }
+          .pdf-export-title {
+            margin: 0 0 6px;
+            color: inherit;
+            font-size: 23px;
+            line-height: 1.25;
+            font-weight: 750;
+          }
+          .pdf-export-meta {
+            margin: 0;
+            color: #6e6e80;
+            font-size: 12px;
+            line-height: 1.5;
+          }
+          body.dark .pdf-export-meta { color: #acacbe; }
+          .pdf-messages {
+            display: grid;
+            gap: 14px;
+          }
+          .pdf-message {
+            width: 100%;
+            padding: 12px 16px 13px;
+            border-left: 4px solid #15803d;
+            border-radius: 8px;
+            background: #f0faf2;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+          .pdf-message.user {
+            border-left-color: #1d4ed8;
+            background: #eef6ff;
+          }
+          body.dark .pdf-message {
+            border-left-color: #53a86b;
+            background: #17251b;
+          }
+          body.dark .pdf-message.user {
+            border-left-color: #5b8def;
+            background: #1a2340;
+          }
+          .pdf-message-role {
+            margin: 0 0 7px;
+            color: #166534;
+            font-size: 11px;
+            font-weight: 750;
+            letter-spacing: 0.02em;
+            break-after: avoid;
+            page-break-after: avoid;
+          }
+          .pdf-message.user .pdf-message-role { color: #1d4ed8; }
+          body.dark .pdf-message-role { color: #82c58d; }
+          body.dark .pdf-message.user .pdf-message-role { color: #8ab4f8; }
+          .pdf-message-content,
+          .message-body,
+          .bubble,
+          .markdown {
+            min-width: 0;
+            max-width: 100%;
+          }
+          .message-body {
+            display: block;
+            width: 100%;
+          }
+          .bubble {
+            width: 100%;
+          }
+          .markdown {
+            font-size: 13px;
+            line-height: 1.65;
+          }
+          .markdown > :first-child { margin-top: 0; }
+          .markdown > :last-child { margin-bottom: 0; }
+          .markdown p,
+          .markdown ul,
+          .markdown ol,
+          .markdown blockquote,
+          .markdown table,
+          .code-block,
+          .attachment-stack,
+          .image-grid {
+            margin-top: 0;
+          }
+          .markdown h1 { font-size: 20px; line-height: 1.3; }
+          .markdown h2 { font-size: 17px; line-height: 1.35; }
+          .markdown h3,
+          .markdown h4 { font-size: 15px; line-height: 1.4; }
+          .markdown ul,
+          .markdown ol {
+            padding-left: 1.6em;
+          }
+          .markdown li { margin: 0.25em 0; }
+          .markdown blockquote {
+            margin: 0 0 1em;
+            padding: 0.2em 0 0.2em 1em;
+            border-left: 3px solid #cbd5e1;
+            color: #4b5563;
+          }
+          body.dark .markdown blockquote {
+            border-left-color: #4b5563;
+            color: #c7c7d1;
+          }
+          .markdown-divider {
+            border: 0;
+            border-top: 1px solid #d6d8de;
+            margin: 1em 0;
+          }
+          .markdown code:not(pre code) {
+            padding: 0.12em 0.32em;
+            border-radius: 5px;
+            background: rgba(15, 23, 42, 0.08);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+            font-size: 0.92em;
+          }
+          body.dark .markdown code:not(pre code) { background: rgba(255, 255, 255, 0.12); }
+          .code-block {
+            margin: 0 0 1em;
+            overflow: hidden;
+            border: 1px solid #d6d8de;
+            border-radius: 8px;
+            background: #0f172a;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+          }
+          .code-toolbar {
+            display: flex;
+            min-height: 30px;
+            padding: 6px 10px;
+            color: #cbd5e1;
+            background: rgba(255, 255, 255, 0.08);
+            font-size: 12px;
+          }
+          .code-copy,
+          .table-toolbar,
+          .message-actions,
+          .source-button {
+            display: none !important;
+          }
+          pre {
+            margin: 0;
+            padding: 12px;
+            overflow: visible;
+            color: #e5e7eb;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+          }
+          pre code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+            white-space: pre-wrap;
+          }
+          body.plain-code .code-toolbar { display: none; }
+          body.plain-code .code-block {
+            background: #f7f7f8;
+          }
+          body.plain-code pre {
+            color: #202123;
+          }
+          body.dark.plain-code .code-block {
+            background: #1e1f23;
+            border-color: #3f4048;
+          }
+          body.dark.plain-code pre {
+            color: #e5e5e5;
+          }
+          .table-wrap,
+          .table-scroll {
+            overflow: visible;
+            max-width: 100%;
+          }
+          table {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+            margin: 0 0 1em;
+            font-size: 12px;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+          }
+          th,
+          td {
+            border-bottom: 1px solid #d6d8de;
+            padding: 7px 8px;
+            vertical-align: top;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+          }
+          th {
+            background: rgba(15, 23, 42, 0.06);
+            font-weight: 700;
+          }
+          body.dark th,
+          body.dark td {
+            border-bottom-color: #3f4048;
+          }
+          body.dark th { background: rgba(255, 255, 255, 0.08); }
+          th.align-center,
+          td.align-center { text-align: center; }
+          th.align-right,
+          td.align-right { text-align: right; }
+          .attachment-stack {
+            display: grid;
+            gap: 8px;
+            margin: 0 0 10px;
+          }
+          .file-attachment-card {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            width: min(340px, 100%);
+            min-height: 52px;
+            padding: 7px 12px 7px 7px;
+            border: 1px solid #d6d8de;
+            border-radius: 8px;
+            color: inherit !important;
+            background: rgba(255, 255, 255, 0.65);
+            text-decoration: none !important;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+          }
+          body.dark .file-attachment-card {
+            border-color: #3f4048;
+            background: rgba(255, 255, 255, 0.06);
+          }
+          .file-attachment-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            width: 36px;
+            height: 36px;
+            border-radius: 7px;
+            color: #fff;
+            background: #5b79ff;
+          }
+          .file-attachment-icon svg {
+            width: 18px;
+            height: 18px;
+          }
+          .file-attachment-body {
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+          }
+          .file-attachment-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 13px;
+            font-weight: 700;
+          }
+          .file-attachment-meta {
+            overflow: hidden;
+            color: #6e6e80;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+          }
+          body.dark .file-attachment-meta { color: #acacbe; }
+          .file-attachment-download { display: none; }
+          .image-grid {
+            display: grid;
+            gap: 10px;
+            margin: 10px 0 0;
+          }
+          .image-frame {
+            display: inline-flex;
+            max-width: 100%;
+            width: auto;
+            padding: 0;
+            overflow: hidden;
+            border: 1px solid #d6d8de;
+            border-radius: 8px;
+            background: #fff;
+            cursor: default;
+            line-height: 0;
+            vertical-align: top;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+          }
+          body.dark .image-frame {
+            border-color: #3f4048;
+            background: #1e1f23;
+          }
+          .image-frame img {
+            display: block;
+            width: auto;
+            max-width: 100%;
+            max-height: 118mm;
+            object-fit: contain;
+          }
+          body.no-images .image-frame,
+          body.no-images .image-grid {
+            display: none !important;
+          }
+          .citation-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            max-width: 150px;
+            height: 20px;
+            margin: 0 2px;
+            padding: 0 6px;
+            border: 1px solid #d6d8de;
+            border-radius: 999px;
+            color: #374151;
+            background: rgba(255, 255, 255, 0.55);
+            font-size: 11px;
+            line-height: 20px;
+            text-decoration: none;
+            vertical-align: -3px;
+          }
+          body.dark .citation-chip {
+            border-color: #3f4048;
+            color: #e5e7eb;
+            background: rgba(255, 255, 255, 0.08);
+          }
+          .citation-chip svg {
+            flex: 0 0 auto;
+            width: 11px;
+            height: 11px;
+            stroke: currentColor;
+            fill: none;
+          }
+          .citation-text {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          body.no-sources .citation-chip,
+          body.no-sources .pdf-message-sources {
+            display: none !important;
+          }
+          .pdf-message-sources {
+            margin: 12px 0 0;
+            padding-top: 10px;
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+          }
+          body.dark .pdf-message-sources {
+            border-top-color: rgba(255, 255, 255, 0.12);
+          }
+          .pdf-message-sources h3 {
+            margin: 0 0 7px;
+            color: #6e6e80;
+            font-size: 11px;
+            line-height: 1.4;
+            font-weight: 750;
+          }
+          body.dark .pdf-message-sources h3 { color: #acacbe; }
+          .pdf-message-sources ol {
+            display: grid;
+            gap: 6px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+          }
+          .pdf-message-sources li > a,
+          .pdf-message-sources li > span {
+            display: grid;
+            grid-template-columns: 22px minmax(0, 1fr);
+            gap: 7px;
+            color: inherit;
+            text-decoration: none;
+          }
+          .pdf-source-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.08);
+            color: #4b5563;
+            font-size: 10px;
+            font-weight: 700;
+          }
+          body.dark .pdf-source-index {
+            background: rgba(255, 255, 255, 0.12);
+            color: #d1d5db;
+          }
+          .pdf-source-body {
+            display: grid;
+            gap: 1px;
+            min-width: 0;
+          }
+          .pdf-source-host {
+            color: #6e6e80;
+            font-size: 10.5px;
+            line-height: 1.35;
+          }
+          .pdf-source-title {
+            color: inherit;
+            font-size: 12px;
+            line-height: 1.35;
+            font-weight: 650;
+          }
+          .pdf-source-url {
+            color: #6e6e80;
+            font-size: 10.5px;
+            line-height: 1.35;
+          }
+          body.dark .pdf-source-host,
+          body.dark .pdf-source-url {
+            color: #acacbe;
+          }
+          .pdf-empty-message {
+            margin: 0;
+            color: #6e6e80;
+          }
+          body.dark .pdf-empty-message {
+            color: #acacbe;
+          }
+          @media print {
+            html, body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          }
+        `;
+      }
+
+      function buildPdfExportDocument(conversation, options) {
+        const groups = groupMessages(conversation.messages || []);
+        const createdAt = conversation.createdAt ? t("pdfExport.createdAt", { time: formatTimestamp(conversation.createdAt) }) : "";
+        const generatedAt = t("pdfExport.generatedAt", { time: formatTimestamp(Date.now() / 1000) });
+        const meta = [createdAt, generatedAt].filter(Boolean).join(" · ");
+        const bodyClass = [
+          options.theme === "dark" ? "dark" : "light",
+          options.codeStyle === "plain" ? "plain-code" : "",
+          options.includeImages ? "" : "no-images",
+          options.includeSources ? "" : "no-sources"
+        ].filter(Boolean).join(" ");
+        const messages = groups.length
+          ? groups.map((group, index) => renderPdfExportMessageGroup(group, index, conversation, options)).join("")
+          : `<p class="pdf-empty-message">${escapeHtml(t("messages.empty"))}</p>`;
+        const title = conversation.title || t("pdf.filenameFallback");
+        return `<!doctype html>
+<html lang="${escapeHtml(state.localeCode)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(sanitizeFilename(title, t("pdf.filenameFallback")))}</title>
+  <style>${pdfExportDocumentStyles()}</style>
+</head>
+<body class="${escapeHtml(bodyClass)}">
+  <main class="pdf-export-doc">
+    <header class="pdf-export-header">
+      <h1 class="pdf-export-title">${escapeHtml(title)}</h1>
+      <p class="pdf-export-meta">${escapeHtml(meta)}</p>
+    </header>
+    <section class="pdf-messages">${messages}</section>
+  </main>
+  <script>
+    (() => {
+      const imagePromises = Array.from(document.images || []).map(image => {
+        if (image.complete) return Promise.resolve();
+        return new Promise(resolve => {
+          const done = () => resolve();
+          image.addEventListener("load", done, { once: true });
+          image.addEventListener("error", done, { once: true });
+          setTimeout(done, 3000);
+        });
+      });
+      Promise.allSettled([document.fonts ? document.fonts.ready : Promise.resolve(), ...imagePromises])
+        .then(() => setTimeout(() => {
+          window.focus();
+          window.print();
+        }, 120));
+    })();
+  </script>
+</body>
+</html>`;
+      }
+
+      function printConversationPdf() {
+        const conversation = getSelectedConversation();
+        if (!conversation) return;
+        const exportWindow = window.open("", "_blank");
+        if (!exportWindow) {
+          showToast(t("error.pdfPopupBlocked"));
           return;
         }
-        document.body.classList.add("busy");
-        dom.exportPdfButton.disabled = true;
-        setStatus(t("status.pdfPreparing"));
+        closePdfExportModal();
+        const html = buildPdfExportDocument(conversation, pdfExportOptions());
+        exportWindow.document.open();
+        exportWindow.document.write(html);
+        exportWindow.document.close();
         try {
-          const { PDFDocument, rgb } = window.PDFLib;
-          const pdfDoc = await PDFDocument.create();
-          pdfDoc.registerFontkit(window.fontkit);
-          let fontBytes;
-          try {
-            fontBytes = await loadPdfFontBytes();
-          } catch (_) {
-            throw new Error(t("error.pdfMissingFont"));
-          }
-          const font = await pdfDoc.embedFont(fontBytes, { subset: false });
-          const boldFont = font;
-          const pageSize = [595.28, 841.89];
-          const margin = 54;
-          const contentWidth = pageSize[0] - margin * 2;
-          let page = pdfDoc.addPage(pageSize);
-          let y = page.getHeight() - margin;
-          const pageBg = rgb(1, 1, 1);
-          const textColor = rgb(0, 0, 0);
-          const mutedColor = rgb(0.25, 0.25, 0.25);
-          const userBg = rgb(0.95, 0.95, 0.95);
-
-          const paintPageBackground = () => {
-            page.drawRectangle({ x: 0, y: 0, width: page.getWidth(), height: page.getHeight(), color: pageBg });
-          };
-          const addPage = () => {
-            page = pdfDoc.addPage(pageSize);
-            paintPageBackground();
-            y = page.getHeight() - margin;
-          };
-          paintPageBackground();
-          const ensureSpace = height => {
-            if (y - height < margin) addPage();
-          };
-          const drawWrapped = (text, { size = 11, lineHeight = 16, color = textColor, indent = 0, fontRef = font } = {}) => {
-            const lines = splitPdfText(text, fontRef, size, contentWidth - indent);
-            for (const line of lines) {
-              ensureSpace(line ? lineHeight : lineHeight * 0.75);
-              if (line) page.drawText(line, { x: margin + indent, y, size, font: fontRef, color });
-              y -= line ? lineHeight : lineHeight * 0.75;
-            }
-          };
-
-          drawWrapped(conversation.title || t("pdf.filenameFallback"), { size: 20, lineHeight: 26, fontRef: boldFont });
-          drawWrapped(t("pdf.generatedAt", { time: formatTimestamp(Date.now() / 1000) }), { size: 9, lineHeight: 14, color: mutedColor });
-          y -= 10;
-
-          for (const message of conversation.messages || []) {
-            const role = message.role === "user" ? t("pdf.user") : (message.role === "tool" ? t("pdf.tool") : t("pdf.assistant"));
-            const text = pdfPlainText(message.content);
-            const roleSize = 10;
-            ensureSpace(24);
-            if (message.role === "user") {
-              page.drawRectangle({ x: margin - 10, y: y - 5, width: contentWidth + 20, height: 22, color: userBg });
-            }
-            page.drawText(role, { x: margin, y, size: roleSize, font: boldFont, color: mutedColor });
-            y -= 18;
-            if (text) drawWrapped(text, { size: 11, lineHeight: 16 });
-
-            const files = Array.isArray(message.files) ? message.files : [];
-            for (const file of files) {
-              const label = file.label || file.filename || t("file.generic");
-              drawWrapped(t("pdf.attachment", { name: label }), { size: 10, lineHeight: 14, color: mutedColor, indent: 12 });
-            }
-
-            const images = collectPdfImages(message, conversation.baseDir);
-            for (const image of images) {
-              try {
-                const embedded = await embedPdfImage(pdfDoc, image);
-                if (!embedded) {
-                  drawWrapped(t("pdf.imageSkipped"), { size: 10, lineHeight: 14, color: mutedColor, indent: 12 });
-                  continue;
-                }
-                const scale = Math.min(contentWidth / embedded.width, 260 / embedded.height, 1);
-                const width = embedded.width * scale;
-                const height = embedded.height * scale;
-                ensureSpace(height + 12);
-                page.drawImage(embedded, { x: margin, y: y - height, width, height });
-                y -= height + 12;
-              } catch (err) {
-                console.warn("PDF image skipped", err);
-                drawWrapped(t("pdf.imageSkipped"), { size: 10, lineHeight: 14, color: mutedColor, indent: 12 });
-              }
-            }
-            y -= 12;
-            await nextFrame();
-          }
-
-          const bytes = await pdfDoc.save();
-          const filename = `${sanitizeFilename(conversation.title, t("pdf.filenameFallback"))}.pdf`;
-          downloadBlob(new Blob([bytes], { type: "application/pdf" }), filename);
-          setStatus(t("status.pdfDone"));
-          showToast(t("status.pdfDone"));
-        } catch (err) {
-          console.error(err);
-          setStatus(err.message || t("status.pdfFailed"));
-          showToast(err.message || t("status.pdfFailed"));
-        } finally {
-          dom.exportPdfButton.disabled = false;
-          document.body.classList.remove("busy");
-        }
+          exportWindow.opener = null;
+        } catch (_) {}
       }
 
       function closeModal() {
@@ -3757,7 +4093,13 @@
       dom.expandSidebarButton.addEventListener("click", openSidebar);
       dom.collapseSidebarButton.addEventListener("click", collapseSidebar);
       dom.sourcePanelCloseButton.addEventListener("click", closeSourcePanel);
-      dom.exportPdfButton.addEventListener("click", exportCurrentConversationPdf);
+      dom.exportPdfButton.addEventListener("click", openPdfExportModal);
+      dom.pdfExportCloseButton.addEventListener("click", closePdfExportModal);
+      dom.pdfExportCancelButton.addEventListener("click", closePdfExportModal);
+      dom.pdfExportConfirmButton.addEventListener("click", printConversationPdf);
+      dom.pdfExportModal.addEventListener("click", event => {
+        if (event.target === dom.pdfExportModal) closePdfExportModal();
+      });
       dom.mainScroll.addEventListener("scroll", scheduleTurnJumpActiveUpdate, { passive: true });
       window.addEventListener("resize", scheduleTurnJumpActiveUpdate);
 
@@ -4016,6 +4358,7 @@
           closeSearchModal();
           closeImportChoiceModal();
           closeSettingsModal();
+          closePdfExportModal();
           closeModal();
           closeSidebar();
           closeSourcePanel();

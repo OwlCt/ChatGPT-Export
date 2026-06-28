@@ -7,16 +7,14 @@
       label: "English",
       nativeLabel: "English",
       dir: "ltr",
-      dateLocale: "en-US",
-      pdfFont: "assets/fonts/NotoSansSC-Regular.ttf"
+      dateLocale: "en-US"
     },
     {
       code: "zh-CN",
       label: "Chinese (Simplified)",
       nativeLabel: "简体中文",
       dir: "ltr",
-      dateLocale: "zh-CN",
-      pdfFont: "assets/fonts/NotoSansSC-Regular.ttf"
+      dateLocale: "zh-CN"
     }
   ];
 
