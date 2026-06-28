@@ -1,25 +1,28 @@
 // ==UserScript==
 // @name         ChatGPT Universal Exporter (Markdown Support)
-// @version      1.3.5
-// @description  User-centric ZIP exporter for personal/team/project spaces. Supports JSON & Markdown formats. Based on ChatGPT Universal Exporter.
-// @author       huhu
+// @name:zh-CN   ChatGPT 通用导出器（Markdown 支持）
+// @name:zh-TW   ChatGPT 通用匯出器（Markdown 支援）
+// @namespace    https://greasyfork.org/users/1616937-owlct
+// @version      1.3.6
+// @description  Export ChatGPT conversations from personal, project, and team workspaces to local ZIP archives with JSON, Markdown, assets, and an offline reader.
+// @description:zh-CN  将 ChatGPT 个人、项目和团队空间对话导出为本地 ZIP，包含 JSON、Markdown、资源文件和离线阅读器。
+// @description:zh-TW  將 ChatGPT 個人、專案和團隊工作區對話匯出為本機 ZIP，包含 JSON、Markdown、資源檔案和離線閱讀器。
+// @author       OwlCt
+// @license      MIT
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js#sha256=acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 // @grant        none
-// @license      MIT
-// @source       https://greasyfork.org/scripts/538495-chatgpt-universal-exporter
-// @namespace    https://github.com/huhusmang/ChatGPT-Exporter
-// @homepageURL  https://greasyfork.org/zh-CN/scripts/556233-chatgpt-universal-exporter-markdown-support
-// @downloadURL  https://update.greasyfork.org/scripts/556233/ChatGPT%20Universal%20Exporter%20(Markdown%20Support).user.js
-// @updateURL    https://update.greasyfork.org/scripts/556233/ChatGPT%20Universal%20Exporter%20(Markdown%20Support).meta.js
+// @homepageURL  https://github.com/OwlCt/ChatGPT-Export
+// @supportURL   https://github.com/OwlCt/ChatGPT-Export/issues
+// @source       https://github.com/OwlCt/ChatGPT-Export
 // ==/UserScript==
 
 /* ============================================================
-    v1.3.5 变更 (浏览器语言自适应)
+    v1.3.6 变更 (Greasy Fork 提交元数据)
     ------------------------------------------------------------
-    • 油猴脚本 UI 会根据浏览器语言自动显示中文或英文
-    • 导出弹窗、选择器、进度和提示文本统一走内置语言表
+    • 补充 Greasy Fork 可识别的多语言 @name / @description
+    • 去掉手写 @downloadURL / @updateURL，交给 Greasy Fork 自动生成
     ========================================================== */
 
 (function () {

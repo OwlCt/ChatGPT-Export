@@ -8,6 +8,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# Local agent and publishing scratch files
+.agents/
+.codex/
+.local/
+
 # Node/npm
 node_modules/
 npm-debug.log*
