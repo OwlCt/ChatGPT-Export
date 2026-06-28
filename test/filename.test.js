@@ -76,10 +76,13 @@ const helpers = window.ChatGPTExporter.__test;
 assert.ok(helpers, 'test helpers should be exposed in test mode');
 
 assert.equal(helpers.detectScriptLocale(['zh-CN']), 'zh-CN');
-assert.equal(helpers.detectScriptLocale(['zh-TW']), 'zh-CN');
+assert.equal(helpers.detectScriptLocale(['zh-TW']), 'zh-TW');
+assert.equal(helpers.detectScriptLocale(['zh-HK']), 'zh-TW');
+assert.equal(helpers.detectScriptLocale(['zh-Hant']), 'zh-TW');
 assert.equal(helpers.detectScriptLocale(['en-GB']), 'en-US');
 assert.equal(helpers.detectScriptLocale(['fr-FR']), 'en-US');
 assert.equal(helpers.getScriptTranslation('button.export', {}, 'zh-CN'), '导出对话');
+assert.equal(helpers.getScriptTranslation('button.export', {}, 'zh-TW'), '匯出對話');
 assert.equal(helpers.getScriptTranslation('button.export', {}, 'en-US'), 'Export Conversations');
 assert.equal(
   helpers.getScriptTranslation('status.listSummary', { total: 3, filtered: 2, visible: 1, selected: 1 }, 'en-US'),

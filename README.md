@@ -3,68 +3,51 @@
 [![CI](https://github.com/OwlCt/ChatGPT-Export/actions/workflows/ci.yml/badge.svg)](https://github.com/OwlCt/ChatGPT-Export/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[中文文档](README_CN.md)
+[简体中文](README_CN.md) · [繁體中文](README_TW.md)
 
-A browser-based ChatGPT export tool with Markdown output and an offline ZIP reader.
+ChatGPT Universal Exporter exports ChatGPT conversations to a local ZIP archive and provides a companion offline reader for browsing, searching, and archiving them. All processing happens locally in the browser; nothing is sent through a server.
 
 The project has two parts:
 
-- `Tampermonkey.js` exports conversations from ChatGPT into a local ZIP archive.
-- `index.html` is a statically deployable reader for importing, searching, caching, and exporting conversations to PDF.
+- `Tampermonkey.js` — a userscript that runs on ChatGPT pages and packages conversations into a ZIP download.
+- `index.html` — an offline reader that imports a ZIP for browsing, search, caching, and PDF export, and can be deployed as a static site.
 
-It is designed for personal backups, project/team workspace archives, and offline browsing of ChatGPT conversation history.
+It is intended for personal backups, archiving project and team-workspace conversations, and reading through history offline.
 
 ## Features
 
-- Export personal, project, and team workspace conversations.
-- Export selected conversations or full workspace backups.
-- Save each conversation as both raw JSON and readable Markdown.
-- Download supported generated images into `images/`.
-- Download supported file attachments into `files/`.
-- Preserve project folders in the ZIP structure.
-- Open exports with the static reader, suitable for GitHub Pages or any static host.
-- Search conversation titles and full message text.
-- Preview images, copy messages, copy code blocks, and open local file links.
-- Cache imported conversations, images, and attachments in browser IndexedDB.
-- Switch between English and Chinese UI, light/dark/system theme, and import preferences.
-- Export the current conversation as a text-selectable PDF.
-- Group sidebar counts by user turns, where one user prompt and the following assistant response count as one item.
-- Show a right-side jump rail for longer conversations.
+- **Export scope** — personal conversations, project conversations, and team workspaces, either as a full backup or as a selected subset.
+- **Dual-format output** — every conversation is saved as both raw JSON and converted Markdown, suited to indexing and reading respectively, with project folder structure preserved.
+- **Asset extraction** — generated images and uploaded attachments are saved into `images/` and `files/` whenever a download URL is available in the conversation metadata.
+- **Reading and search** — the reader supports title and full-text search, message and code-block copying, image preview, and local file links.
+- **Local caching** — imported conversations and attachments are persisted in browser IndexedDB, so reopening requires no re-import.
+- **Interface and export** — the UI switches between English, Simplified Chinese, and Traditional Chinese with light/dark/system themes and configurable import preferences; the current conversation exports to a PDF whose text remains selectable.
+- **Reading experience** — the sidebar counts by user turn (one prompt and its following reply count as a single item), and longer conversations provide a jump rail on the right.
 
 ## Installation
 
 1. Install a userscript manager such as Tampermonkey.
 2. Open `Tampermonkey.js` and install it as a userscript.
 3. Visit `https://chatgpt.com/` or `https://chat.openai.com/`.
-4. Click the floating **Export Conversations** button.
+4. Click the floating **Export Conversations** button that appears on the page.
 
 ## Usage
 
 ### Export Conversations
 
-1. Open ChatGPT in the browser where the userscript is installed.
-2. Click **Export Conversations**.
-3. Choose the export scope:
-   - Personal conversations
-   - Project conversations
-   - Team workspace conversations
-4. Optionally choose specific conversations from the picker.
-5. Wait for the ZIP file to download.
+Open ChatGPT in the browser where the userscript is installed, click **Export Conversations**, choose an export scope (personal, project, or team workspace), optionally select specific conversations, and wait for the ZIP file to download.
 
-Large exports can take several minutes because conversations and assets are fetched through the browser session.
+Conversations and their images and attachments are fetched one at a time through the current browser session, so larger exports taking several minutes is expected.
 
 ### Read An Export
 
-1. Open the deployed `index.html` in a modern browser.
-2. Drag a ZIP export onto the page, or choose it from the file picker.
-3. Browse conversations from the sidebar.
-4. Use search, copy buttons, image preview, source panels, local file links, and PDF export as needed.
+Open the deployed `index.html` in a modern browser and drag a ZIP onto the page (or choose it from the file picker); the conversations are then listed in the sidebar. Search, copy, image preview, source panels, local file links, and PDF export are all available as needed.
 
-The reader runs entirely in the browser. After the first import, conversations and assets are saved in the current browser until you clear the cached data.
+The reader runs entirely on your machine. After the first import, conversations and assets remain in the current browser until the cache is cleared manually.
 
 ## ZIP Layout
 
-Typical export contents:
+A typical export contains:
 
 ```text
 chatgpt_personal_backup_2026-06-26.zip
@@ -81,78 +64,54 @@ chatgpt_personal_backup_2026-06-26.zip
     `-- files/
 ```
 
-Each JSON file keeps the original conversation data returned by ChatGPT. Each Markdown file is generated from that JSON for easier reading and indexing.
+Each JSON file is the raw conversation data returned by ChatGPT. Each Markdown file is generated from it for easier reading and indexing.
 
 ## Architecture
 
 ### Userscript Exporter
 
-`Tampermonkey.js` runs inside ChatGPT pages and uses the active browser session to call ChatGPT's own backend APIs. It collects conversation metadata, fetches conversation JSON, extracts images and attachments when metadata is available, and writes everything into a ZIP with JSZip.
-
-Main responsibilities:
-
-- Session token detection from same-origin browser requests.
-- Workspace and project discovery.
-- Conversation listing and filtering.
-- Conversation JSON download.
-- Markdown conversion.
-- Image and attachment extraction.
-- ZIP filename sanitization and de-duplication.
+`Tampermonkey.js` runs inside ChatGPT pages and uses the current logged-in browser session to call ChatGPT's own backend APIs. It identifies the session token from same-origin requests, discovers the available workspaces and projects, lists and filters conversations, downloads each conversation's JSON and converts it to Markdown, extracts images and attachments where available, and finally packages everything into a ZIP with JSZip — sanitizing illegal filename characters and resolving name collisions in the process.
 
 ### Static Reader
 
-`index.html` is a static, local-first web app. It vendors JSZip from a local file, parses exported ZIP archives, persists imported content in IndexedDB, and exports the current conversation through a dedicated browser print/PDF layout.
-
-Main responsibilities:
-
-- ZIP parsing in the browser.
-- Persistent IndexedDB storage for conversations, images, and file attachments.
-- JSON and Markdown conversation loading.
-- Local image and file URL creation.
-- Conversation search and sidebar grouping.
-- Message rendering, code/table copy controls, image preview, and source panels.
-- English/Chinese UI, theme settings, and import preferences.
-- Current-conversation PDF export with images and source references.
-- User-turn counting and long-conversation jump navigation.
+`index.html` is a local-first static web page. JSZip is loaded directly from the repository's `vendor/` directory rather than a CDN. It parses the ZIP in the browser, persists conversations, images, and attachments in IndexedDB, creates accessible URLs for local images and files, and handles search, sidebar grouping, message rendering, code and table copy controls, image preview, and source panels. Interface language, theme, and import preferences are managed here as well. PDF export carries through images and source references, and user-turn counting and long-conversation jump navigation are implemented on this side.
 
 ### Tests
 
-The `test/` directory contains Node-based static checks for the userscript helpers and offline reader. The tests verify filename sanitization, ZIP filename de-duplication, duplicate image-reference handling, and reader UI guardrails.
+The `test/` directory contains a set of Node-based static checks covering the userscript helpers and the reader. They verify filename sanitization, ZIP name de-duplication, duplicate image-reference handling, and several key behaviors in the reader UI.
 
 ## Privacy And Security
 
-- Exports are generated locally in your browser.
-- Conversation data is not sent to any third-party service by this project.
-- The userscript runs only on the ChatGPT domains listed in its metadata.
-- The userscript uses your active ChatGPT browser session to access ChatGPT APIs.
-- The static reader does not load runtime dependencies from third-party CDNs.
-- Imported content is stored in the current browser's IndexedDB and is not uploaded to a server.
+- The export process runs entirely in your local browser; this project does not send any conversation content to a third party.
+- The userscript takes effect only on the ChatGPT domains declared in its metadata, and accesses the APIs through the current logged-in session.
+- Once deployed, the reader depends on no third-party runtime CDN.
+- Imported content is stored only in the current browser's IndexedDB and is never uploaded to a server.
 
 ## Dependency Integrity
 
-`Tampermonkey.js` loads JSZip `3.10.1` from cdnjs and pins the URL with a SHA-256 fragment:
+`Tampermonkey.js` loads JSZip `3.10.1` from cdnjs, pinning a SHA-256 checksum onto the URL:
 
 ```text
 https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 ```
 
-The static reader vendors JSZip `3.10.1` under `vendor/`. Runtime dependency loading does not require a CDN.
+The reader instead vendors JSZip `3.10.1` under the repository's `vendor/` directory, requiring no CDN at runtime.
 
 ## Known Limits
 
-- ChatGPT backend APIs are private and may change without notice.
-- Very large exports can hit browser memory or rate-limit constraints.
-- Image and attachment export depends on metadata available in each conversation.
-- Some team workspace detection may require opening a team conversation first.
-- Browsers may delete IndexedDB data in private browsing, low-storage situations, or when site data is cleared.
-- PDF export opens a dedicated print window and uses the browser's print dialog to save PDF files. This keeps text selectable and lets the browser handle pagination, images, and source-reference layout.
+- ChatGPT's backend APIs are private and may change without notice.
+- Very large exports may run into browser memory or rate-limit constraints.
+- Whether images and attachments can be exported depends on the resource metadata present in each conversation.
+- Some team workspaces require opening a team conversation first before the script can detect the workspace.
+- Browsers may delete IndexedDB data under low storage, in private browsing, or when site data is cleared.
+- PDF export opens a separate print window and saves through the browser's print dialog. This design keeps text selectable and lets the browser handle pagination, images, and source-reference layout.
 
 ## Acknowledgements
 
-The exporter is based on [huhusmang/ChatGPT-Exporter](https://github.com/huhusmang/ChatGPT-Exporter), a ChatGPT conversation export tool for personal, project, and team workspaces.
+The exporter is based on [huhusmang/ChatGPT-Exporter](https://github.com/huhusmang/ChatGPT-Exporter), a ChatGPT export tool covering personal, project, and team workspaces.
 
-That project credits [ChatGPT Universal Exporter](https://greasyfork.org/zh-CN/scripts/538495-chatgpt-universal-exporter) as the upstream userscript foundation, with original work by Alex Mercer, Hanashiro, and WenDavid.
+That project in turn credits [ChatGPT Universal Exporter](https://greasyfork.org/zh-CN/scripts/538495-chatgpt-universal-exporter) as its upstream, originally written by Alex Mercer, Hanashiro, and WenDavid.
 
 ## Development
 
@@ -180,7 +139,8 @@ Repository layout:
 |   `-- reader.test.js
 |-- package.json
 |-- README.md
-`-- README_CN.md
+|-- README_CN.md
+`-- README_TW.md
 ```
 
 ## License

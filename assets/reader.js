@@ -181,16 +181,29 @@
         }
       }
 
-      function browserPrefersChinese() {
+      function browserChineseLocale() {
         const languages = Array.isArray(navigator.languages) && navigator.languages.length
           ? navigator.languages
           : [navigator.language || ""];
-        return languages.some(language => String(language).toLowerCase().startsWith("zh"));
+        for (const language of languages) {
+          const normalized = String(language || "").toLowerCase().replace(/_/g, "-");
+          if (["zh-tw", "zh-hk", "zh-mo", "zh-hant"].some(code => normalized === code || normalized.startsWith(`${code}-`))) {
+            return localeMap["zh-TW"] ? "zh-TW" : "zh-CN";
+          }
+          if (normalized === "zh" || normalized.startsWith("zh-")) {
+            return localeMap["zh-CN"] ? "zh-CN" : "zh-TW";
+          }
+        }
+        return "";
       }
 
       function resolveLocaleCode(language = state.settings.language) {
         if (language && language !== "auto" && localeMap[language]) return language;
-        return browserPrefersChinese() && localeMap["zh-CN"] ? "zh-CN" : fallbackLocaleCode;
+        return browserChineseLocale() || fallbackLocaleCode;
+      }
+
+      function currentCollationLocale() {
+        return state.localeMeta.dateLocale || state.localeCode || fallbackLocaleCode;
       }
 
       function localeMeta(code = state.localeCode) {
@@ -1717,7 +1730,7 @@
 
         conversations.sort((a, b) => {
           if (b.sortTime !== a.sortTime) return b.sortTime - a.sortTime;
-          return a.title.localeCompare(b.title, "zh-CN");
+          return a.title.localeCompare(b.title, currentCollationLocale());
         });
 
         setStatus(markdownCount ? t("status.markdownOnly", { count: markdownCount }) : t("status.importComplete"));
@@ -3106,7 +3119,7 @@
         incoming.forEach(conversation => put(conversation, true));
         merged.sort((a, b) => {
           if (b.sortTime !== a.sortTime) return b.sortTime - a.sortTime;
-          return a.title.localeCompare(b.title, "zh-CN");
+          return a.title.localeCompare(b.title, currentCollationLocale());
         });
         return { conversations: merged, added, updated };
       }
@@ -3132,7 +3145,7 @@
         }
         merged.sort((a, b) => {
           if (b.sortTime !== a.sortTime) return b.sortTime - a.sortTime;
-          return a.title.localeCompare(b.title, "zh-CN");
+          return a.title.localeCompare(b.title, currentCollationLocale());
         });
         return { conversations: merged, removed };
       }

@@ -212,6 +212,38 @@
         }
     };
 
+    function makeTraditionalChineseScriptLocale(source) {
+        const replacements = [
+            ['导出', '匯出'], ['导入', '匯入'], ['选择', '選擇'], ['对话', '對話'], ['设置', '設定'],
+            ['关闭', '關閉'], ['打开', '開啟'], ['边栏', '邊欄'], ['项目', '項目'], ['团队', '團隊'],
+            ['空间', '空間'], ['个人', '個人'], ['检测', '偵測'], ['多个', '多個'], ['请输入', '請輸入'],
+            ['输入', '輸入'], ['粘贴', '貼上'], ['标题', '標題'], ['范围', '範圍'], ['状态', '狀態'],
+            ['归档', '封存'], ['创建', '建立'], ['更新', '更新'], ['清空', '清除'], ['加载', '載入'],
+            ['列表', '清單'], ['筛选', '篩選'], ['显示', '顯示'], ['选中', '選取'], ['匹配', '符合'],
+            ['时间', '時間'], ['未知', '未知'], ['全部', '全部'], ['取消', '取消'], ['返回', '返回'],
+            ['完成', '完成'], ['错误', '錯誤'], ['未命名', '未命名'], ['文件', '檔案'], ['获取', '取得'],
+            ['根目录', '根目錄'], ['生成', '產生'], ['失败', '失敗'], ['跳过', '略過'], ['无法', '無法'],
+            ['刷新', '重新整理'], ['页面', '頁面'], ['任意', '任一'], ['成功', '成功'], ['图片', '圖片'],
+            ['下载', '下載'], ['链接', '連結'], ['没有', '沒有'], ['可用', '可用'], ['详情', '詳細資訊'],
+            ['控制台', '主控台'], ['发生', '發生'], ['严重', '嚴重'], ['自动', '自動'], ['列举', '列出'],
+            ['有效', '有效'], ['请求', '要求'], ['来源', '來源'], ['开始', '開始'], ['确保', '確保'],
+            ['登录', '登入'], ['侧边栏', '側邊欄'], ['预览', '預覽'], ['会话', '對話'], ['浏览器', '瀏覽器'],
+            ['当前', '目前'], ['剩余', '剩餘'], ['仅', '僅'], ['按', '依'], ['个', '個'], ['条', '則'],
+            ['请', '請'], ['这个', '這個'], ['一个', '一個']
+        ];
+        const converted = {};
+        Object.entries(source).forEach(([key, value]) => {
+            let text = value;
+            replacements.forEach(([from, to]) => {
+                text = text.split(from).join(to);
+            });
+            converted[key] = text;
+        });
+        return converted;
+    }
+
+    SCRIPT_LOCALES['zh-TW'] = makeTraditionalChineseScriptLocale(SCRIPT_LOCALES['zh-CN']);
+
     function normalizeScriptLocale(code) {
         return String(code || '').trim().replace(/_/g, '-');
     }
@@ -235,6 +267,7 @@
         }
         for (const code of normalized) {
             const lower = code.toLowerCase();
+            if (['zh-tw', 'zh-hk', 'zh-mo', 'zh-hant'].some(locale => lower === locale || lower.startsWith(`${locale}-`))) return 'zh-TW';
             if (lower === 'zh' || lower.startsWith('zh-')) return 'zh-CN';
             if (lower === 'en' || lower.startsWith('en-')) return 'en-US';
         }

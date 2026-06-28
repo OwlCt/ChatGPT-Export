@@ -8,6 +8,7 @@ const css = fs.readFileSync('assets/reader.css', 'utf8');
 const app = fs.readFileSync('assets/reader.js', 'utf8');
 const en = fs.readFileSync('assets/i18n/en-US.js', 'utf8');
 const zh = fs.readFileSync('assets/i18n/zh-CN.js', 'utf8');
+const zhTw = fs.readFileSync('assets/i18n/zh-TW.js', 'utf8');
 const i18nIndex = fs.readFileSync('assets/i18n/index.js', 'utf8');
 
 assert.match(indexHtml, /<link rel="stylesheet" href="assets\/reader\.css(?:\?[^"]+)?">/, 'reader should load external CSS');
@@ -20,7 +21,8 @@ assert.doesNotMatch(indexHtml, /vendor\/pdf-lib\.min\.js/, 'reader should not lo
 assert.doesNotMatch(indexHtml, /vendor\/fontkit\.umd\.min\.js/, 'reader should not load fontkit for browser print export');
 assert.doesNotMatch(indexHtml, /assets\/fonts\/pdf-fonts\.js/, 'reader should not load embedded PDF font fallback data');
 assert.match(indexHtml, /assets\/i18n\/en-US\.js(?:\?[^"]+)?/, 'reader should load English locale');
-assert.match(indexHtml, /assets\/i18n\/zh-CN\.js(?:\?[^"]+)?/, 'reader should load Chinese locale');
+assert.match(indexHtml, /assets\/i18n\/zh-CN\.js(?:\?[^"]+)?/, 'reader should load Simplified Chinese locale');
+assert.match(indexHtml, /assets\/i18n\/zh-TW\.js(?:\?[^"]+)?/, 'reader should load Traditional Chinese locale');
 assert.match(indexHtml, /assets\/reader\.js(?:\?[^"]+)?/, 'reader should load external app JS');
 assert.match(compatHtml, /location\.replace\('index\.html'/, 'legacy reader.html should redirect to index.html');
 
@@ -193,18 +195,25 @@ assert.doesNotMatch(app, /metaPanel\.classList\.add\("visible"\)/, 'import summa
 const sandbox = { window: {}, console, location: { hostname: 'localhost' } };
 vm.runInNewContext(en, sandbox, { filename: 'en-US.js' });
 vm.runInNewContext(zh, sandbox, { filename: 'zh-CN.js' });
+vm.runInNewContext(zhTw, sandbox, { filename: 'zh-TW.js' });
 vm.runInNewContext(i18nIndex, sandbox, { filename: 'index.js' });
 const locales = sandbox.window.ChatGPTReaderLocales;
 const registry = sandbox.window.ChatGPTReaderI18n.registry;
 assert.deepEqual(
   Object.keys(locales['zh-CN']).sort(),
   Object.keys(locales['en-US']).sort(),
-  'Chinese and English dictionaries should expose the same keys'
+  'Simplified Chinese and English dictionaries should expose the same keys'
 );
-assert.equal(registry.length, 2, 'reader should register two first-party languages');
+assert.deepEqual(
+  Object.keys(locales['zh-TW']).sort(),
+  Object.keys(locales['en-US']).sort(),
+  'Traditional Chinese and English dictionaries should expose the same keys'
+);
+assert.equal(registry.length, 3, 'reader should register three first-party languages');
+assert.ok(registry.some(locale => locale.code === 'zh-TW' && locale.nativeLabel === '繁體中文'), 'reader should expose Traditional Chinese in language settings');
 assert.ok(registry.every(locale => locale.code && locale.nativeLabel && locale.dateLocale), 'registered languages should expose metadata for future expansion');
 
-[app, en, zh, i18nIndex].forEach((script, index) => {
+[app, en, zh, zhTw, i18nIndex].forEach((script, index) => {
   assert.doesNotThrow(
     () => new Function(script),
     `reader script ${index + 1} should parse`

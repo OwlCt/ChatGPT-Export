@@ -15,6 +15,13 @@
       nativeLabel: "简体中文",
       dir: "ltr",
       dateLocale: "zh-CN"
+    },
+    {
+      code: "zh-TW",
+      label: "Chinese (Traditional)",
+      nativeLabel: "繁體中文",
+      dir: "ltr",
+      dateLocale: "zh-TW"
     }
   ];
 
