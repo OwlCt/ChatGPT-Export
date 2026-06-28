@@ -141,7 +141,8 @@
         appDialogResolver: null,
         importSummaryTimer: 0,
         toastTimer: 0,
-        turnJumpScrollFrame: 0
+        turnJumpScrollFrame: 0,
+        pdfFontFallbackPromise: null
       };
 
       function escapeHtml(value) {
@@ -188,7 +189,7 @@
       function localeMeta(code = state.localeCode) {
         return localeRegistry.find(locale => locale.code === code) ||
           localeRegistry.find(locale => locale.code === fallbackLocaleCode) ||
-          { code: fallbackLocaleCode, dateLocale: fallbackLocaleCode, dir: "ltr", pdfFont: "assets/fonts/NotoSansSC-Regular.woff2" };
+          { code: fallbackLocaleCode, dateLocale: fallbackLocaleCode, dir: "ltr", pdfFont: "assets/fonts/NotoSansSC-Regular.ttf" };
       }
 
       function t(key, params = {}) {
@@ -3465,6 +3466,8 @@
           .replace(/^\s{0,3}>\s?/gm, "")
           .replace(/\*\*([^*]+)\*\*/g, "$1")
           .replace(/`([^`]+)`/g, "$1")
+          .replace(/\t/g, "    ")
+          .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim();
       }
@@ -3498,14 +3501,113 @@
         return await response.arrayBuffer();
       }
 
+      function base64ToArrayBuffer(value) {
+        const normalized = String(value || "")
+          .replace(/^data:[^,]*,/i, "")
+          .replace(/\s+/g, "");
+        const binary = atob(normalized);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes.buffer;
+      }
+
+      function loadPdfFontFallbackScript() {
+        if (window.ChatGPTReaderPdfFonts) return Promise.resolve();
+        if (state.pdfFontFallbackPromise) return state.pdfFontFallbackPromise;
+        state.pdfFontFallbackPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "assets/fonts/pdf-fonts.js?v=pdf-font-full-20260628";
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error(t("error.pdfMissingFont")));
+          document.head.appendChild(script);
+        });
+        return state.pdfFontFallbackPromise;
+      }
+
+      async function loadPdfFontBytes() {
+        const fontPath = state.localeMeta.pdfFont || "assets/fonts/NotoSansSC-Regular.ttf";
+        let fetchError = null;
+        if (location.protocol !== "file:") {
+          try {
+            return await fetchArrayBuffer(fontPath);
+          } catch (err) {
+            fetchError = err;
+          }
+        }
+        await loadPdfFontFallbackScript();
+        const fonts = window.ChatGPTReaderPdfFonts || {};
+        const fallback = fonts[fontPath] || fonts[basename(fontPath)] || fonts.NotoSansSCRegular;
+        if (!fallback) throw fetchError || new Error(t("error.pdfMissingFont"));
+        return base64ToArrayBuffer(fallback);
+      }
+
+      async function pngBytesFromImageSource(src) {
+        const pngBlob = await imageSourceToPngBlob(src);
+        return await pngBlob.arrayBuffer();
+      }
+
       async function embedPdfImage(pdfDoc, image) {
         const src = image.localUrl || image.url || "";
         if (!src) return null;
         const type = String(image.content_type || image.mimeType || mimeFromPath(image.filename || image.localPath || "")).toLowerCase();
-        const bytes = await fetchArrayBuffer(src);
-        if (type.includes("png") || /\.png(?:$|\?)/i.test(src)) return await pdfDoc.embedPng(bytes);
-        if (type.includes("jpeg") || type.includes("jpg") || /\.(jpe?g)(?:$|\?)/i.test(src)) return await pdfDoc.embedJpg(bytes);
+        const isPng = type.includes("png") || /\.png(?:$|\?)/i.test(src);
+        const isJpeg = type.includes("jpeg") || type.includes("jpg") || /\.(jpe?g)(?:$|\?)/i.test(src);
+        try {
+          const pngBytes = await pngBytesFromImageSource(src);
+          return await pdfDoc.embedPng(pngBytes);
+        } catch (err) {
+          console.warn("PDF image canvas conversion failed; trying direct embed", err);
+        }
+        if (isPng || isJpeg) {
+          const bytes = await fetchArrayBuffer(src);
+          return isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        }
         return null;
+      }
+
+      function markdownImageForPdf(alt, src, baseDir) {
+        const raw = String(src || "").trim().replace(/^<|>$/g, "");
+        const safe = safeUrl(raw);
+        if (safe) {
+          return {
+            localUrl: safe,
+            dispositionLabel: alt || "image",
+            filename: basename(raw),
+            mimeType: mimeFromPath(raw)
+          };
+        }
+        const path = joinZipPath(baseDir || "", decodeURIComponentSafe(raw));
+        const record = state.imageByFullPath.get(path);
+        if (!record?.url) return null;
+        return {
+          localUrl: record.url,
+          localPath: record.path,
+          filename: record.name,
+          mimeType: record.mimeType || mimeFromPath(record.name),
+          dispositionLabel: alt || assetRecordDisplayName(record) || "image"
+        };
+      }
+
+      function collectPdfImages(message, baseDir) {
+        const images = [];
+        const seen = new Set();
+        const add = image => {
+          const src = image?.localUrl || image?.url || "";
+          if (!src) return;
+          const key = image.localPath || image.asset_pointer || src;
+          if (seen.has(key)) return;
+          seen.add(key);
+          images.push(image);
+        };
+        if (Array.isArray(message.images)) {
+          message.images.forEach(add);
+        }
+        String(message.content || "").replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
+          add(markdownImageForPdf(alt, src, baseDir));
+          return "";
+        });
+        return images;
       }
 
       async function exportCurrentConversationPdf() {
@@ -3527,25 +3629,31 @@
           pdfDoc.registerFontkit(window.fontkit);
           let fontBytes;
           try {
-            fontBytes = await fetchArrayBuffer(state.localeMeta.pdfFont || "assets/fonts/NotoSansSC-Regular.woff2");
+            fontBytes = await loadPdfFontBytes();
           } catch (_) {
             throw new Error(t("error.pdfMissingFont"));
           }
-          const font = await pdfDoc.embedFont(fontBytes, { subset: true });
+          const font = await pdfDoc.embedFont(fontBytes, { subset: false });
           const boldFont = font;
           const pageSize = [595.28, 841.89];
           const margin = 54;
           const contentWidth = pageSize[0] - margin * 2;
           let page = pdfDoc.addPage(pageSize);
           let y = page.getHeight() - margin;
-          const textColor = rgb(0.12, 0.13, 0.14);
-          const mutedColor = rgb(0.38, 0.39, 0.43);
+          const pageBg = rgb(1, 1, 1);
+          const textColor = rgb(0, 0, 0);
+          const mutedColor = rgb(0.25, 0.25, 0.25);
           const userBg = rgb(0.95, 0.95, 0.95);
 
+          const paintPageBackground = () => {
+            page.drawRectangle({ x: 0, y: 0, width: page.getWidth(), height: page.getHeight(), color: pageBg });
+          };
           const addPage = () => {
             page = pdfDoc.addPage(pageSize);
+            paintPageBackground();
             y = page.getHeight() - margin;
           };
+          paintPageBackground();
           const ensureSpace = height => {
             if (y - height < margin) addPage();
           };
@@ -3580,7 +3688,7 @@
               drawWrapped(t("pdf.attachment", { name: label }), { size: 10, lineHeight: 14, color: mutedColor, indent: 12 });
             }
 
-            const images = Array.isArray(message.images) ? message.images.filter(image => image.localUrl || image.url) : [];
+            const images = collectPdfImages(message, conversation.baseDir);
             for (const image of images) {
               try {
                 const embedded = await embedPdfImage(pdfDoc, image);

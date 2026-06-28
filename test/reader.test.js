@@ -10,21 +10,26 @@ const en = fs.readFileSync('assets/i18n/en-US.js', 'utf8');
 const zh = fs.readFileSync('assets/i18n/zh-CN.js', 'utf8');
 const i18nIndex = fs.readFileSync('assets/i18n/index.js', 'utf8');
 
-assert.match(indexHtml, /<link rel="stylesheet" href="assets\/reader\.css">/, 'reader should load external CSS');
+assert.match(indexHtml, /<link rel="stylesheet" href="assets\/reader\.css(?:\?[^"]+)?">/, 'reader should load external CSS');
 assert.match(indexHtml, /localStorage\.getItem\("chatgpt-export-reader\.settings\.v1"\)/, 'reader should apply saved theme before CSS loads');
 assert.match(indexHtml, /document\.documentElement\.dataset\.theme/, 'reader should set initial theme on the root element');
 assert.match(indexHtml, /vendor\/jszip\.min\.js/, 'reader should load local JSZip');
 assert.match(indexHtml, /vendor\/pdf-lib\.min\.js/, 'reader should load local pdf-lib');
 assert.match(indexHtml, /vendor\/fontkit\.umd\.min\.js/, 'reader should load local fontkit');
-assert.match(indexHtml, /assets\/i18n\/en-US\.js/, 'reader should load English locale');
-assert.match(indexHtml, /assets\/i18n\/zh-CN\.js/, 'reader should load Chinese locale');
-assert.match(indexHtml, /assets\/reader\.js/, 'reader should load external app JS');
+assert.doesNotMatch(indexHtml, /assets\/fonts\/pdf-fonts\.js/, 'reader should lazy-load PDF font fallback data');
+assert.match(indexHtml, /assets\/i18n\/en-US\.js(?:\?[^"]+)?/, 'reader should load English locale');
+assert.match(indexHtml, /assets\/i18n\/zh-CN\.js(?:\?[^"]+)?/, 'reader should load Chinese locale');
+assert.match(indexHtml, /assets\/reader\.js(?:\?[^"]+)?/, 'reader should load external app JS');
 assert.match(compatHtml, /location\.replace\('index\.html'/, 'legacy reader.html should redirect to index.html');
 
 assert.ok(fs.existsSync('vendor/jszip.min.js'), 'JSZip vendor file should exist');
 assert.ok(fs.existsSync('vendor/pdf-lib.min.js'), 'pdf-lib vendor file should exist');
 assert.ok(fs.existsSync('vendor/fontkit.umd.min.js'), 'fontkit vendor file should exist');
-assert.ok(fs.existsSync('assets/fonts/NotoSansSC-Regular.woff2'), 'PDF Unicode font should exist');
+assert.ok(fs.existsSync('assets/fonts/NotoSansSC-Regular.ttf'), 'PDF Unicode TrueType font should exist');
+assert.notEqual(fs.readFileSync('assets/fonts/NotoSansSC-Regular.ttf').subarray(0, 4).toString('ascii'), 'wOF2', 'PDF font should not be WOFF2 wrapped');
+assert.ok(fs.existsSync('assets/fonts/pdf-fonts.js'), 'PDF font fallback script should exist');
+assert.match(fs.readFileSync('assets/fonts/pdf-fonts.js', 'utf8'), /ChatGPTReaderPdfFonts/, 'PDF font fallback script should expose font bytes');
+assert.doesNotMatch(fs.readFileSync('assets/fonts/pdf-fonts.js', 'utf8'), /NotoSansSC-Regular\.woff2/, 'PDF font fallback should use the TrueType font');
 assert.match(fs.readFileSync('vendor/jszip.min.js', 'utf8'), /JSZip v3\.10\.1/, 'reader should vendor JSZip 3.10.1');
 
 assert.match(indexHtml, /打开你的 ChatGPT 导出包/, 'reader should expose the ZIP drop empty state');
@@ -95,8 +100,14 @@ assert.match(app, /data-sort-toggle/, 'asset library should include sorting cont
 assert.match(app, /PDFDocument\.create/, 'PDF export should create a PDF document');
 assert.match(app, /registerFontkit/, 'PDF export should register fontkit for custom fonts');
 assert.match(app, /embedFont/, 'PDF export should embed a local font');
+assert.match(app, /subset:\s*false/, 'PDF export should fully embed the font for reader compatibility');
+assert.match(app, /loadPdfFontBytes/, 'PDF export should fall back to embedded font bytes when fetch is unavailable');
+assert.match(app, /loadPdfFontFallbackScript/, 'PDF export should lazy-load embedded font bytes only when needed');
 assert.match(app, /drawText/, 'PDF export should draw selectable text');
+assert.match(app, /paintPageBackground/, 'PDF export should paint an opaque page background');
 assert.match(app, /embedPng|embedJpg/, 'PDF export should embed supported images');
+assert.match(app, /imageSourceToPngBlob/, 'PDF export should convert browser-supported image formats to PNG');
+assert.match(app, /collectPdfImages/, 'PDF export should include markdown image references');
 
 assert.match(app, /dedupeConversations/, 'reader should dedupe conversations during imports');
 assert.match(app, /conversationMergeKeys/, 'reader should merge conversations with multiple dedupe keys');

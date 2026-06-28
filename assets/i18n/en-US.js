@@ -153,7 +153,7 @@ window.ChatGPTReaderLocales["en-US"] = {
   "error.imageConvertFailed": "Image conversion failed",
   "error.pdfNoConversation": "Open a conversation before exporting PDF",
   "error.pdfMissingLibrary": "PDF export library is missing",
-  "error.pdfMissingFont": "PDF font is missing. Put a Unicode font at assets/fonts/NotoSansSC-Regular.woff2.",
+  "error.pdfMissingFont": "PDF font is missing. Put a Unicode font at assets/fonts/NotoSansSC-Regular.ttf.",
   "pdf.generatedAt": "Generated at {time}",
   "pdf.user": "User",
   "pdf.assistant": "Assistant",

@@ -153,7 +153,7 @@ window.ChatGPTReaderLocales["zh-CN"] = {
   "error.imageConvertFailed": "图片转换失败",
   "error.pdfNoConversation": "请先打开一个会话再导出 PDF",
   "error.pdfMissingLibrary": "缺少 PDF 导出库",
-  "error.pdfMissingFont": "缺少 PDF 字体，请把 Unicode 字体放到 assets/fonts/NotoSansSC-Regular.woff2。",
+  "error.pdfMissingFont": "缺少 PDF 字体，请把 Unicode 字体放到 assets/fonts/NotoSansSC-Regular.ttf。",
   "pdf.generatedAt": "生成时间：{time}",
   "pdf.user": "用户",
   "pdf.assistant": "助手",

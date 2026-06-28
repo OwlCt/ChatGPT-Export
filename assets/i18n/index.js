@@ -8,7 +8,7 @@
       nativeLabel: "English",
       dir: "ltr",
       dateLocale: "en-US",
-      pdfFont: "assets/fonts/NotoSansSC-Regular.woff2"
+      pdfFont: "assets/fonts/NotoSansSC-Regular.ttf"
     },
     {
       code: "zh-CN",
@@ -16,7 +16,7 @@
       nativeLabel: "简体中文",
       dir: "ltr",
       dateLocale: "zh-CN",
-      pdfFont: "assets/fonts/NotoSansSC-Regular.woff2"
+      pdfFont: "assets/fonts/NotoSansSC-Regular.ttf"
     }
   ];
 
