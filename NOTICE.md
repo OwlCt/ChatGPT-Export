@@ -7,4 +7,8 @@ This project includes derivative work inspired by and based on:
 
 The upstream userscript lineage credits original work by Alex Mercer, Hanashiro, and WenDavid.
 
-JSZip is used under its own license. `Tampermonkey.js` loads JSZip from cdnjs, and `reader.html` embeds JSZip for offline ZIP parsing.
+JSZip is used under its own license. `Tampermonkey.js` loads JSZip from cdnjs, and the static reader vendors JSZip for ZIP parsing.
+
+The static reader vendors `pdf-lib` and `@pdf-lib/fontkit` for browser-side PDF generation.
+
+The static reader includes Noto Sans SC font assets from `@fontsource/noto-sans-sc`, distributed under the SIL Open Font License 1.1.

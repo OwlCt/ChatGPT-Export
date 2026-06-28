@@ -10,7 +10,7 @@ A browser-based ChatGPT export tool with Markdown output and an offline ZIP read
 The project has two parts:
 
 - `Tampermonkey.js` exports conversations from ChatGPT into a local ZIP archive.
-- `reader.html` opens exported ZIP files locally and provides a searchable reading interface.
+- `index.html` is a statically deployable reader for importing, searching, caching, and exporting conversations to PDF.
 
 It is designed for personal backups, project/team workspace archives, and offline browsing of ChatGPT conversation history.
 
@@ -22,9 +22,12 @@ It is designed for personal backups, project/team workspace archives, and offlin
 - Download supported generated images into `images/`.
 - Download supported file attachments into `files/`.
 - Preserve project folders in the ZIP structure.
-- Open exports locally with `reader.html`; no server is required.
+- Open exports with the static reader, suitable for GitHub Pages or any static host.
 - Search conversation titles and full message text.
 - Preview images, copy messages, copy code blocks, and open local file links.
+- Cache imported conversations, images, and attachments in browser IndexedDB.
+- Switch between English and Chinese UI, light/dark/system theme, and import preferences.
+- Export the current conversation as a text-selectable PDF.
 - Group sidebar counts by user turns, where one user prompt and the following assistant response count as one item.
 - Show a right-side jump rail for longer conversations.
 
@@ -52,12 +55,12 @@ Large exports can take several minutes because conversations and assets are fetc
 
 ### Read An Export
 
-1. Open `reader.html` in a modern browser.
+1. Open the deployed `index.html` in a modern browser.
 2. Drag a ZIP export onto the page, or choose it from the file picker.
 3. Browse conversations from the sidebar.
-4. Use search, copy buttons, image preview, source panels, and local file links as needed.
+4. Use search, copy buttons, image preview, source panels, local file links, and PDF export as needed.
 
-The reader runs entirely in the browser. It can be opened directly from disk.
+The reader runs entirely in the browser. After the first import, conversations and assets are saved in the current browser until you clear the cached data.
 
 ## ZIP Layout
 
@@ -96,17 +99,20 @@ Main responsibilities:
 - Image and attachment extraction.
 - ZIP filename sanitization and de-duplication.
 
-### Offline Reader
+### Static Reader
 
-`reader.html` is a standalone single-file web app. It embeds JSZip so it can parse exported archives without network access. The reader builds an in-memory index of conversations, images, files, and Markdown content, then renders a local ChatGPT-style reading interface.
+`index.html` is a static, local-first web app. It vendors JSZip, pdf-lib, and fontkit from local files, parses exported ZIP archives, persists imported content in IndexedDB, and exports the current conversation as a text-selectable PDF.
 
 Main responsibilities:
 
 - ZIP parsing in the browser.
+- Persistent IndexedDB storage for conversations, images, and file attachments.
 - JSON and Markdown conversation loading.
 - Local image and file URL creation.
 - Conversation search and sidebar grouping.
 - Message rendering, code/table copy controls, image preview, and source panels.
+- English/Chinese UI, theme settings, and import preferences.
+- Current-conversation PDF export.
 - User-turn counting and long-conversation jump navigation.
 
 ### Tests
@@ -119,7 +125,8 @@ The `test/` directory contains Node-based static checks for the userscript helpe
 - Conversation data is not sent to any third-party service by this project.
 - The userscript runs only on the ChatGPT domains listed in its metadata.
 - The userscript uses your active ChatGPT browser session to access ChatGPT APIs.
-- `reader.html` can be used offline after it is downloaded.
+- The static reader does not load runtime dependencies from third-party CDNs.
+- Imported content is stored in the current browser's IndexedDB and is not uploaded to a server.
 
 ## Dependency Integrity
 
@@ -130,7 +137,7 @@ https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 ```
 
-`reader.html` embeds JSZip `3.10.1` directly so the offline reader can open ZIP files without a network request.
+The static reader vendors JSZip `3.10.1`, pdf-lib, and fontkit under `vendor/`; PDF font assets live under `assets/fonts/`. Runtime dependency loading does not require a CDN.
 
 ## Known Limits
 
@@ -138,7 +145,8 @@ SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 - Very large exports can hit browser memory or rate-limit constraints.
 - Image and attachment export depends on metadata available in each conversation.
 - Some team workspace detection may require opening a team conversation first.
-- The reader is local-only and does not sync or persist imported ZIP contents after the page is closed.
+- Browsers may delete IndexedDB data in private browsing, low-storage situations, or when site data is cleared.
+- PDF export prioritizes selectable text, so the PDF layout is simpler than the web reading view.
 
 ## Acknowledgements
 
@@ -160,7 +168,14 @@ Repository layout:
 ```text
 .
 |-- Tampermonkey.js
+|-- index.html
 |-- reader.html
+|-- assets/
+|   |-- reader.css
+|   |-- reader.js
+|   |-- fonts/
+|   `-- i18n/
+|-- vendor/
 |-- test/
 |   |-- filename.test.js
 |   `-- reader.test.js

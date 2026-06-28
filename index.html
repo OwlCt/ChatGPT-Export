@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChatGPT Export Reader</title>
+  <script>
+    (() => {
+      try {
+        const settings = JSON.parse(localStorage.getItem("chatgpt-export-reader.settings.v1") || "{}");
+        const theme = settings && settings.theme || "system";
+        const dark = theme === "dark" ||
+          (theme === "system" && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        document.documentElement.style.backgroundColor = dark ? "#151515" : "#ffffff";
+      } catch (_) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <style>
+    html[data-theme="dark"] {
+      background: #151515;
+      color: #ececf1;
+      color-scheme: dark;
+    }
+  </style>
+  <link rel="stylesheet" href="assets/reader.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="会话列表" data-i18n-attr="aria-label:aria.conversationList">
+      <div class="sidebar-rail" aria-label="侧边栏快捷操作" data-i18n-attr="aria-label:aria.sidebarShortcuts">
+        <button class="rail-button" id="expandSidebarButton" type="button" title="打开边栏" aria-label="打开边栏" data-tooltip="打开边栏"></button>
+        <button class="rail-button" id="railChooseZipButton" type="button" title="导入 ZIP" aria-label="导入 ZIP" data-tooltip="导入 ZIP"></button>
+        <button class="rail-button" id="railSearchButton" type="button" title="搜索聊天" aria-label="搜索聊天" data-tooltip="搜索聊天"></button>
+        <button class="rail-button" id="railMediaLibraryButton" type="button" title="资料库" aria-label="资料库" data-tooltip="资料库"></button>
+        <span class="rail-spacer" aria-hidden="true"></span>
+        <button class="rail-button" id="railSettingsButton" type="button" title="设置" aria-label="设置" data-tooltip="设置"></button>
+      </div>
+      <div class="sidebar-panel" id="sidebarPanel">
+        <div class="sidebar-scroll" id="sidebarScroll">
+          <div class="brand">
+            <div class="brand-mark" aria-hidden="true">C</div>
+            <div class="brand-title">ChatGPT</div>
+            <button class="sidebar-collapse-button" id="collapseSidebarButton" type="button" title="关闭边栏" aria-label="关闭边栏"></button>
+          </div>
+          <div class="sidebar-actions">
+            <button class="sidebar-action" id="chooseZipButton" type="button"></button>
+            <button class="sidebar-action" id="searchButton" type="button" aria-expanded="false"></button>
+            <button class="sidebar-action" id="mediaLibraryButton" type="button"></button>
+            <input id="fileInput" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
+          </div>
+          <div class="meta-panel" id="metaPanel">
+            <div class="meta-line"><strong id="zipName">未导入</strong></div>
+            <div class="meta-line" id="zipStats"></div>
+            <div class="meta-line" id="zipStatus"></div>
+          </div>
+          <nav class="conversation-list" id="conversationList" aria-label="导出的会话"></nav>
+        </div>
+        <div class="sidebar-footer">
+          <button class="sidebar-action settings-action" id="settingsButton" type="button"></button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <div class="main-scroll" id="mainScroll">
+        <div class="mobile-topbar">
+          <button class="button icon" id="openSidebarButton" type="button" title="打开会话列表" aria-label="打开会话列表">☰</button>
+          <div class="mobile-title" id="mobileTitle">ChatGPT Export Reader</div>
+          <button class="button icon" id="mobileChooseButton" type="button" title="选择 ZIP" aria-label="选择 ZIP">+</button>
+        </div>
+
+        <section class="empty-state" id="emptyState">
+          <div class="drop-zone" id="dropZone">
+            <h1 class="drop-title" data-i18n="empty.title">打开你的 ChatGPT 导出包</h1>
+            <p class="drop-copy" data-i18n="empty.copy">拖入 ZIP，或选择一个由导出脚本生成的备份文件。</p>
+            <button class="button primary" id="emptyChooseButton" type="button" data-i18n="actions.chooseZip">选择 ZIP</button>
+          </div>
+        </section>
+
+        <section class="reader" id="readerPane" aria-live="polite">
+          <header class="thread-header">
+            <div class="thread-title-group">
+              <h1 class="thread-title" id="threadTitle"></h1>
+              <div class="thread-meta" id="threadMeta"></div>
+            </div>
+            <button class="button thread-pdf-button" id="exportPdfButton" type="button" data-i18n="actions.exportPdf">导出 PDF</button>
+          </header>
+          <div class="messages" id="messages"></div>
+        </section>
+        <section class="asset-library" id="assetLibrary" aria-live="polite">
+          <header class="asset-library-header">
+            <div>
+              <h1 class="asset-library-title" id="assetLibraryTitle"></h1>
+              <div class="asset-library-meta" id="assetLibraryMeta"></div>
+            </div>
+            <div class="asset-library-actions" id="assetLibraryHeaderActions"></div>
+          </header>
+          <div class="asset-library-content" id="assetLibraryContent"></div>
+        </section>
+        <nav class="turn-jump" id="turnJump" aria-label="对话快速跳转"></nav>
+      </div>
+      <aside class="source-panel" id="sourcePanel" aria-label="来源" aria-hidden="true" data-i18n-attr="aria-label:source.title">
+        <header class="source-panel-header">
+          <h2 class="source-panel-title" id="sourcePanelTitle" data-i18n="source.title">来源</h2>
+          <button class="source-panel-close" id="sourcePanelCloseButton" type="button" aria-label="关闭来源" data-i18n-attr="aria-label:source.close">×</button>
+        </header>
+        <div class="source-panel-list" id="sourcePanelList"></div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="modal" id="imageModal" role="dialog" aria-modal="true" aria-label="图片预览" data-i18n-attr="aria-label:image.preview">
+    <button class="modal-close" id="modalCloseButton" type="button" aria-label="关闭图片预览" data-i18n-attr="aria-label:image.closePreview">×</button>
+    <img id="modalImage" alt="">
+  </div>
+
+  <div class="search-modal" id="searchModal" aria-hidden="true">
+    <div class="search-dialog" role="dialog" aria-modal="true" aria-label="搜索聊天" data-i18n-attr="aria-label:search.title">
+      <div class="search-dialog-head">
+        <span class="search-dialog-icon" id="searchModalIcon" aria-hidden="true"></span>
+        <input class="search-modal-input" id="searchModalInput" type="search" placeholder="搜索聊天..." autocomplete="off" data-i18n-attr="placeholder:search.placeholder">
+        <button class="search-modal-close" id="searchModalCloseButton" type="button" aria-label="关闭搜索" data-i18n-attr="aria-label:search.close">×</button>
+      </div>
+      <div class="search-results" id="searchModalResults"></div>
+    </div>
+  </div>
+
+  <div class="import-choice-modal" id="importChoiceModal" aria-hidden="true">
+    <div class="import-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="importChoiceTitle">
+      <div class="dialog-content">
+        <h2 class="import-choice-title" id="importChoiceTitle">导入这个 ZIP？</h2>
+        <p class="import-choice-copy" id="importChoiceCopy">当前已经有导入内容，可以追加并自动去重，也可以替换当前列表。</p>
+        <div class="import-choice-options" role="radiogroup" aria-labelledby="importChoiceTitle">
+          <button class="import-choice-option selected" id="appendImportButton" type="button" role="radio" aria-checked="true" data-import-mode="append">
+            <strong data-i18n="import.appendTitle">追加到当前列表</strong>
+            <span data-i18n="import.appendCopy">保留现有聊天，导入后按会话自动去重和更新。</span>
+          </button>
+          <button class="import-choice-option" id="replaceImportButton" type="button" role="radio" aria-checked="false" data-import-mode="replace">
+            <strong data-i18n="import.replaceTitle">替换当前导入</strong>
+            <span data-i18n="import.replaceCopy">清空当前列表，只显示这个 ZIP 的内容。</span>
+          </button>
+        </div>
+        <label class="remember-choice">
+          <input id="rememberImportChoiceInput" type="checkbox">
+          <span data-i18n="import.rememberChoice">记住选择</span>
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" id="cancelImportChoiceButton" type="button" data-i18n="actions.cancel">取消</button>
+        <button class="dialog-button primary" id="confirmImportChoiceButton" type="button" data-i18n="actions.submit">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-modal" id="settingsModal" aria-hidden="true">
+    <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="dialog-content">
+        <div class="settings-head">
+          <h2 class="settings-title" id="settingsTitle" data-i18n="settings.title">设置</h2>
+          <button class="settings-close" id="settingsCloseButton" type="button" aria-label="关闭设置" data-i18n-attr="aria-label:settings.close">×</button>
+        </div>
+        <div class="settings-body">
+          <label class="settings-field">
+            <span data-i18n="settings.language">语言</span>
+            <select id="languageSelect"></select>
+          </label>
+          <label class="settings-field">
+            <span data-i18n="settings.theme">外观</span>
+            <select id="themeSelect">
+              <option value="system" data-i18n="settings.themeSystem">跟随系统</option>
+              <option value="light" data-i18n="settings.themeLight">亮色</option>
+              <option value="dark" data-i18n="settings.themeDark">暗色</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span data-i18n="settings.defaultImportMode">默认导入方式</span>
+            <select id="defaultImportModeSelect">
+              <option value="append" data-i18n="settings.importAppend">增量保存</option>
+              <option value="replace" data-i18n="settings.importReplace">替换现有数据</option>
+              <option value="ask" data-i18n="settings.importAsk">每次询问</option>
+            </select>
+          </label>
+          <section class="settings-section">
+            <h3 class="settings-section-title" data-i18n="settings.storage">存储</h3>
+            <div class="storage-summary">
+              <div class="storage-row">
+                <span data-i18n="settings.storageUsed">已占用</span>
+                <strong id="storageUsedValue">--</strong>
+              </div>
+              <div class="storage-row">
+                <span data-i18n="settings.storageRemaining">还可存储</span>
+                <strong id="storageRemainingValue">--</strong>
+              </div>
+            </div>
+          </section>
+          <section class="settings-section data-management">
+            <h3 class="settings-section-title" data-i18n="settings.dataManagement">数据管理</h3>
+            <p class="settings-section-copy" data-i18n="settings.clearCopy">清空此浏览器中缓存的会话、图片和文件，不会修改原始 ZIP。</p>
+            <button class="danger-button" id="settingsClearButton" type="button" data-i18n="actions.clear">清空导入</button>
+          </section>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" id="settingsCloseActionButton" type="button" data-i18n="actions.close">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-dialog-modal" id="appDialogModal" aria-hidden="true">
+    <div class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle" aria-describedby="appDialogCopy">
+      <div class="dialog-content">
+        <h2 class="app-dialog-title" id="appDialogTitle"></h2>
+        <p class="app-dialog-copy" id="appDialogCopy"></p>
+        <label class="app-dialog-field" id="appDialogField">
+          <span id="appDialogInputLabel"></span>
+          <input id="appDialogInput" type="text" autocomplete="off">
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-button secondary" id="appDialogCancelButton" type="button"></button>
+        <button class="dialog-button primary" id="appDialogConfirmButton" type="button"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="import-summary-popup" id="importSummaryPopup" role="status" aria-live="polite" aria-hidden="true">
+    <div class="import-summary-name" id="importSummaryName"></div>
+    <div class="import-summary-stats" id="importSummaryStats"></div>
+    <div class="import-summary-status" id="importSummaryStatus"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/fontkit.umd.min.js"></script>
+  <script src="assets/i18n/en-US.js"></script>
+  <script src="assets/i18n/zh-CN.js"></script>
+  <script src="assets/i18n/index.js"></script>
+  <script src="assets/reader.js"></script>
+</body>
+</html>
