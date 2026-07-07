@@ -126,6 +126,10 @@ assert.match(app, /conversationBranchId/, 'reader should preserve exported conve
 assert.match(app, /function countConversationTurns/, 'reader should count visible conversations by user turns');
 assert.match(app, /t\("turn\.count", \{ count: countConversationTurns\(conversation\.messages\) \}\)/, 'conversation list should show localized user-turn counts');
 assert.doesNotMatch(app, /\$\{conversation\.messages\.length\} 条/, 'conversation list should not show raw message counts');
+assert.match(app, /conversationSortOrder/, 'reader should track conversation sort order');
+assert.match(app, /conversation-sort-button/, 'conversation list should render a sort toggle next to the first group title');
+assert.match(app, /conversation\.sortNewest/, 'reader should expose conversation sort labels');
+assert.match(css, /\.conversation-sort-button/, 'reader should style the conversation sort toggle');
 assert.match(app, /id:\$\{conversation\.conversationId\}:\$\{conversation\.branchId\}/, 'reader should dedupe JSON conversations by branch id');
 assert.doesNotMatch(app, /appendModeInput/, 'append import should not be a persistent sidebar toggle');
 assert.doesNotMatch(app, /window\.confirm/, 'reader should not use browser-native confirm dialogs');
@@ -137,6 +141,12 @@ assert.match(app, /table-col-label/, 'reader should reserve a stable label colum
 assert.match(app, /tableAlignments = line/, 'reader should parse markdown table alignment markers');
 assert.match(app, /class="align-\$\{align\}"/, 'reader should apply table alignment classes');
 assert.match(app, /markdown-divider/, 'reader should render markdown dividers cleanly');
+assert.match(app, /collectFencedDivLines/, 'reader should parse fenced div blocks such as :::writing');
+assert.match(app, /md-div--/, 'reader should render fenced div blocks as styled containers');
+assert.match(app, /md-div-copy/, 'reader should render a copy button on fenced div cards');
+assert.match(app, /block\.copied/, 'reader should toast when a fenced div is copied');
+assert.match(css, /\.md-div\s*\{/, 'reader should style fenced div blocks as text boxes');
+assert.match(css, /\.md-div:hover \.md-div-copy/, 'fenced div copy button should appear on hover');
 assert.match(app, /fileByFullPath/, 'reader should index exported file attachments');
 assert.doesNotMatch(app, /dom\.clearButton/, 'clear import should not be wired to the sidebar');
 assert.doesNotMatch(app, /dom\.railClearButton/, 'clear import should not be wired to the rail');

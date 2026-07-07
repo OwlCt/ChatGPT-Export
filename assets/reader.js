@@ -116,6 +116,7 @@
         localeMeta: localeRegistry[0] || { code: fallbackLocaleCode, dateLocale: fallbackLocaleCode, dir: "ltr" },
         conversations: [],
         filtered: [],
+        conversationSortOrder: "desc",
         selectedId: null,
         query: "",
         zipName: "",
@@ -1737,8 +1738,20 @@
         return conversations;
       }
 
+      function renderConversationSortButton() {
+        const asc = state.conversationSortOrder === "asc";
+        const label = t(asc ? "conversation.sortOldest" : "conversation.sortNewest");
+        const order = asc ? "asc" : "desc";
+        return `<button class="conversation-sort-button" type="button" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" aria-pressed="${asc}" data-sort-order="${order}">${sortOrderIconSvg(order)}</button>`;
+      }
+
       function renderList() {
         state.filtered = state.conversations.slice();
+        const sortDir = state.conversationSortOrder === "asc" ? 1 : -1;
+        state.filtered.sort((a, b) => {
+          if (a.sortTime !== b.sortTime) return sortDir * (a.sortTime - b.sortTime);
+          return a.title.localeCompare(b.title, currentCollationLocale());
+        });
 
         if (!state.filtered.length) {
           dom.conversationList.innerHTML = `<div class="empty-list">${escapeHtml(t("import.emptyList"))}</div>`;
@@ -1753,8 +1766,10 @@
         }
 
         let html = "";
+        let groupIndex = 0;
         for (const [project, conversations] of groups) {
-          html += `<div class="group"><div class="group-title">${escapeHtml(project)} · ${conversations.length}</div>`;
+          const sortButton = groupIndex === 0 ? renderConversationSortButton() : "";
+          html += `<div class="group"><div class="group-title"><span class="group-title-text">${escapeHtml(project)} · ${conversations.length}</span>${sortButton}</div>`;
           for (const conversation of conversations) {
             const active = conversation.id === state.selectedId ? " active" : "";
             const subtitle = [
@@ -1769,6 +1784,7 @@
             `;
           }
           html += "</div>";
+          groupIndex += 1;
         }
         dom.conversationList.innerHTML = html;
       }
@@ -2256,6 +2272,13 @@
         return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h7A3.5 3.5 0 0 1 19 8.5v4a3.5 3.5 0 0 1-3.5 3.5H11l-4 3v-3.3A3.5 3.5 0 0 1 5 12.5v-4Z" stroke-width="1.8" stroke-linejoin="round"></path></svg>';
       }
 
+      function sortOrderIconSvg(order) {
+        if (order === "asc") {
+          return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 19V5" stroke-width="1.8" stroke-linecap="round"></path><path d="M6 11l6-6 6 6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+        }
+        return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14" stroke-width="1.8" stroke-linecap="round"></path><path d="M6 13l6 6 6-6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+      }
+
       function mediaIconSvg() {
         return '<svg class="library-icon" viewBox="0 0 20 20" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" aria-hidden="true"><path d="M14.402 2.648a2.2 2.2 0 0 1 2.547 1.783l1.782 10.11a2.2 2.2 0 0 1-1.782 2.547l-1.494.263a2.2 2.2 0 0 1-2.547-1.782l-.856-4.86v4.424a2.2 2.2 0 0 1-2.199 2.199H8.337a2.2 2.2 0 0 1-1.534-.626 2.2 2.2 0 0 1-1.533.626H3.754a2.2 2.2 0 0 1-2.199-2.199V4.867c0-1.214.985-2.198 2.199-2.198H5.27a2.2 2.2 0 0 1 1.533.624 2.2 2.2 0 0 1 1.534-.624h1.516c.746 0 1.405.372 1.802.94.317-.354.75-.608 1.254-.697zm1.237 2.014a.87.87 0 0 0-1.005-.704l-1.495.263a.87.87 0 0 0-.704 1.006l1.784 10.11a.87.87 0 0 0 1.005.705l1.494-.264a.867.867 0 0 0 .704-1.005zM3.754 3.999a.87.87 0 0 0-.868.868v10.266c0 .48.388.869.868.869H5.27c.48 0 .868-.39.868-.869V4.867a.87.87 0 0 0-.868-.868zm4.583 0a.87.87 0 0 0-.868.868v10.266c0 .48.388.868.868.869h1.516c.48 0 .868-.39.868-.869V4.867a.87.87 0 0 0-.868-.868z"></path></svg>';
       }
@@ -2737,6 +2760,71 @@
           codeLines = [];
           codeLang = "";
         };
+        const parseDivAttrs = attrString => {
+          const attrs = {};
+          if (!attrString) return attrs;
+          const re = /(\w+)\s*=\s*("[^"]*"|'[^']*'|[^\s}]+)/g;
+          let m;
+          while ((m = re.exec(attrString))) {
+            let v = m[2];
+            if ((v[0] === '"' && v[v.length - 1] === '"') || (v[0] === "'" && v[v.length - 1] === "'")) {
+              v = v.slice(1, -1);
+            }
+            attrs[m[1]] = v;
+          }
+          return attrs;
+        };
+        const collectFencedDivLines = (lines, startIndex) => {
+          const content = [];
+          let depth = 1;
+          let inCode = false;
+          let codeMarker = null;
+          for (let i = startIndex + 1; i < lines.length; i++) {
+            const line = lines[i];
+            const codeFence = line.match(/^(`{3,}|~{3,})/);
+            if (codeFence) {
+              if (!inCode) {
+                inCode = true;
+                codeMarker = codeFence[1][0];
+              } else if (codeMarker && line[0] === codeMarker) {
+                inCode = false;
+                codeMarker = null;
+              }
+              content.push(line);
+              continue;
+            }
+            if (inCode) {
+              content.push(line);
+              continue;
+            }
+            if (/^:{3,}\s*\S/.test(line) && !/^:{3,}\s*$/.test(line)) {
+              depth++;
+              content.push(line);
+              continue;
+            }
+            if (/^:{3,}\s*$/.test(line)) {
+              depth--;
+              if (depth === 0) return { content, endIndex: i };
+              content.push(line);
+              continue;
+            }
+            content.push(line);
+          }
+          return { content, endIndex: lines.length - 1 };
+        };
+        const renderFencedDiv = (className, attrString, inner, rawText) => {
+          const classes = ["md-div"];
+          const safeClass = String(className || "").replace(/[^a-zA-Z0-9_-]/g, "");
+          if (safeClass) classes.push(`md-div--${safeClass}`);
+          const attrs = parseDivAttrs(attrString);
+          const safeVariant = String(attrs.variant || "").replace(/[^a-zA-Z0-9_-]/g, "");
+          if (safeVariant) classes.push(`md-div--variant-${safeVariant}`);
+          const dataId = attrs.id ? ` data-div-id="${escapeHtml(attrs.id)}"` : "";
+          const copyLabel = t("block.copy");
+          const copyData = encodeURIComponent(rawText || "");
+          const copyButton = `<button class="md-div-copy" type="button" title="${escapeHtml(copyLabel)}" aria-label="${escapeHtml(copyLabel)}" data-div-copy="${escapeHtml(copyData)}">${copyIconSvg()}</button>`;
+          return `<div class="${classes.join(" ")}"${dataId}>${copyButton}${inner}</div>`;
+        };
         const parseTableRow = line => {
           const trimmed = line.trim();
           if (!trimmed.includes("|")) return null;
@@ -2819,6 +2907,17 @@
           }
           if (inCode) {
             codeLines.push(line);
+            continue;
+          }
+
+          const divOpen = line.match(/^(:{3,})\s*(?:([^\s{]+)\s*)?(?:\{([^}]*)\})?\s*$/);
+          if (divOpen && (divOpen[2] || divOpen[3])) {
+            flushAll();
+            const collected = collectFencedDivLines(lines, i);
+            const rawText = collected.content.join("\n").trim();
+            const inner = renderMarkdown(rawText, baseDir);
+            html.push(renderFencedDiv(divOpen[2], divOpen[3], inner, rawText));
+            i = collected.endIndex;
             continue;
           }
 
@@ -3694,6 +3793,24 @@
             border-left-color: #4b5563;
             color: #c7c7d1;
           }
+          .md-div {
+            margin: 0 0 1em;
+            padding: 10px 14px;
+            border: 1px solid #d6d8de;
+            border-radius: 8px;
+            background: #f7f7f8;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+          }
+          body.dark .md-div {
+            border-color: #3f4048;
+            background: #202123;
+          }
+          .md-div > :first-child { margin-top: 0; }
+          .md-div > :last-child { margin-bottom: 0; }
+          .md-div--writing {
+            border-left: 3px solid #10a37f;
+          }
           .markdown-divider {
             border: 0;
             border-top: 1px solid #d6d8de;
@@ -3727,7 +3844,8 @@
           .code-copy,
           .table-toolbar,
           .message-actions,
-          .source-button {
+          .source-button,
+          .md-div-copy {
             display: none !important;
           }
           pre {
@@ -4223,6 +4341,12 @@
       });
 
       dom.conversationList.addEventListener("click", event => {
+        const sortButton = event.target.closest(".conversation-sort-button");
+        if (sortButton) {
+          state.conversationSortOrder = state.conversationSortOrder === "asc" ? "desc" : "asc";
+          renderList();
+          return;
+        }
         const button = event.target.closest(".conversation-item");
         if (!button) return;
         selectConversation(button.dataset.id);
@@ -4325,6 +4449,21 @@
           if (code) {
             await navigator.clipboard.writeText(code);
             showToast(t("code.copied"));
+          }
+          return;
+        }
+
+        const divCopyButton = event.target.closest(".md-div-copy");
+        if (divCopyButton) {
+          let text = "";
+          try {
+            text = decodeURIComponent(divCopyButton.dataset.divCopy || "");
+          } catch (_) {
+            text = divCopyButton.dataset.divCopy || "";
+          }
+          if (text) {
+            await navigator.clipboard.writeText(text);
+            showToast(t("block.copied"));
           }
           return;
         }
