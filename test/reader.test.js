@@ -14,7 +14,7 @@ const i18nIndex = fs.readFileSync('reader/assets/i18n/index.js', 'utf8');
 assert.match(indexHtml, /<link rel="stylesheet" href="assets\/reader\.css(?:\?[^"]+)?">/, 'reader should load external CSS');
 assert.match(indexHtml, /localStorage\.getItem\("chatgpt-export-reader\.settings\.v1"\)/, 'reader should apply saved theme before CSS loads');
 assert.match(indexHtml, /document\.documentElement\.dataset\.theme/, 'reader should set initial theme on the root element');
-assert.match(indexHtml, /<link rel="icon" href="openai\.svg" type="image\/svg\+xml">/, 'reader should use the OpenAI icon as its favicon');
+assert.match(indexHtml, /<link rel="icon" href="openai\.svg(?:\?[^"]+)?" type="image\/svg\+xml">/, 'reader should use the OpenAI icon as its favicon');
 assert.match(indexHtml, /<span class="brand-mark" aria-hidden="true"><\/span>/, 'reader should show a CSS-colored OpenAI icon in the sidebar brand');
 assert.match(indexHtml, /vendor\/jszip\.min\.js/, 'reader should load local JSZip');
 assert.doesNotMatch(indexHtml, /vendor\/pdf-lib\.min\.js/, 'reader should not load pdf-lib for browser print export');
