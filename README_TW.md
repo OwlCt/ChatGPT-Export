@@ -10,7 +10,7 @@ ChatGPT Universal Exporter 用於將 ChatGPT 對話匯出為本機 ZIP 檔案，
 專案由兩個部分組成：
 
 - `Tampermonkey.js`：使用者指令碼，執行於 ChatGPT 頁面，將對話封裝為 ZIP 檔案供下載。
-- `index.html`：離線閱讀器，匯入 ZIP 後即可瀏覽、搜尋、快取並匯出 PDF，可作為靜態網站部署。
+- `reader/index.html`：離線閱讀器，匯入 ZIP 後即可瀏覽、搜尋、快取並匯出 PDF，可作為靜態網站部署。
 
 適用於個人對話備份、專案與團隊空間的封存，以及歷史紀錄的離線閱讀。
 
@@ -74,7 +74,7 @@ JSON 檔案為 ChatGPT 回傳的原始對話資料，Markdown 檔案則由其轉
 
 ### 靜態閱讀器
 
-`index.html` 是一個本機優先的靜態網頁，JSZip 直接從儲存庫的 `vendor/` 目錄載入，而非 CDN。它在瀏覽器中解析 ZIP，將對話、圖片與附件持久保存於 IndexedDB，為本機圖片與檔案產生可存取的 URL，並負責搜尋、側邊欄分組、訊息渲染、程式碼與表格複製、圖片預覽及來源面板。介面語言、主題與匯入偏好亦由其管理。PDF 匯出會保留圖片與來源引用，使用者回合計數與長對話跳轉導覽同樣於此實作。
+`index.html` 是一個本機優先的靜態網頁，JSZip 直接從儲存庫的 `reader/vendor/` 目錄載入，而非 CDN。它在瀏覽器中解析 ZIP，將對話、圖片與附件持久保存於 IndexedDB，為本機圖片與檔案產生可存取的 URL，並負責搜尋、側邊欄分組、訊息渲染、程式碼與表格複製、圖片預覽及來源面板。介面語言、主題與匯入偏好亦由其管理。PDF 匯出會保留圖片與來源引用，使用者回合計數與長對話跳轉導覽同樣於此實作。
 
 ### 測試
 
@@ -96,7 +96,7 @@ https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 ```
 
-閱讀器則將 JSZip `3.10.1` 內建於儲存庫的 `vendor/` 目錄，執行階段不依賴 CDN。
+閱讀器則將 JSZip `3.10.1` 內建於儲存庫的 `reader/vendor/` 目錄，執行階段不依賴 CDN。
 
 ## 已知限制
 
@@ -127,13 +127,15 @@ npm test
 ```text
 .
 |-- Tampermonkey.js
-|-- index.html
-|-- reader.html
-|-- assets/
-|   |-- reader.css
-|   |-- reader.js
-|   `-- i18n/
-|-- vendor/
+|-- reader/
+|   |-- index.html
+|   |-- reader.html
+|   |-- openai.svg
+|   |-- assets/
+|   |   |-- reader.css
+|   |   |-- reader.js
+|   |   `-- i18n/
+|   `-- vendor/
 |-- test/
 |   |-- filename.test.js
 |   `-- reader.test.js

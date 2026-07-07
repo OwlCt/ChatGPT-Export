@@ -6,7 +6,7 @@ Thanks for your interest in improving ChatGPT Universal Exporter.
 
 - Keep the project fully browser-local.
 - Do not add telemetry, analytics, or remote services.
-- Keep `reader.html` usable as a standalone local file.
+- Keep `reader/reader.html` usable as a standalone local file.
 - Prefer small, focused changes with tests for parsing, export, or reader behavior.
 
 ## Development
@@ -33,6 +33,6 @@ Please include:
 When reporting a bug, include:
 
 - Browser and userscript manager version.
-- Whether the issue happens during export or in `reader.html`.
+- Whether the issue happens during export or in `reader/reader.html`.
 - A small redacted sample ZIP or JSON snippet when possible.
 - Console errors from the browser developer tools.

@@ -2,14 +2,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const indexHtml = fs.readFileSync('index.html', 'utf8');
-const compatHtml = fs.readFileSync('reader.html', 'utf8');
-const css = fs.readFileSync('assets/reader.css', 'utf8');
-const app = fs.readFileSync('assets/reader.js', 'utf8');
-const en = fs.readFileSync('assets/i18n/en-US.js', 'utf8');
-const zh = fs.readFileSync('assets/i18n/zh-CN.js', 'utf8');
-const zhTw = fs.readFileSync('assets/i18n/zh-TW.js', 'utf8');
-const i18nIndex = fs.readFileSync('assets/i18n/index.js', 'utf8');
+const indexHtml = fs.readFileSync('reader/index.html', 'utf8');
+const compatHtml = fs.readFileSync('reader/reader.html', 'utf8');
+const css = fs.readFileSync('reader/assets/reader.css', 'utf8');
+const app = fs.readFileSync('reader/assets/reader.js', 'utf8');
+const en = fs.readFileSync('reader/assets/i18n/en-US.js', 'utf8');
+const zh = fs.readFileSync('reader/assets/i18n/zh-CN.js', 'utf8');
+const zhTw = fs.readFileSync('reader/assets/i18n/zh-TW.js', 'utf8');
+const i18nIndex = fs.readFileSync('reader/assets/i18n/index.js', 'utf8');
 
 assert.match(indexHtml, /<link rel="stylesheet" href="assets\/reader\.css(?:\?[^"]+)?">/, 'reader should load external CSS');
 assert.match(indexHtml, /localStorage\.getItem\("chatgpt-export-reader\.settings\.v1"\)/, 'reader should apply saved theme before CSS loads');
@@ -26,8 +26,8 @@ assert.match(indexHtml, /assets\/i18n\/zh-TW\.js(?:\?[^"]+)?/, 'reader should lo
 assert.match(indexHtml, /assets\/reader\.js(?:\?[^"]+)?/, 'reader should load external app JS');
 assert.match(compatHtml, /location\.replace\('index\.html'/, 'legacy reader.html should redirect to index.html');
 
-assert.ok(fs.existsSync('vendor/jszip.min.js'), 'JSZip vendor file should exist');
-assert.match(fs.readFileSync('vendor/jszip.min.js', 'utf8'), /JSZip v3\.10\.1/, 'reader should vendor JSZip 3.10.1');
+assert.ok(fs.existsSync('reader/vendor/jszip.min.js'), 'JSZip vendor file should exist');
+assert.match(fs.readFileSync('reader/vendor/jszip.min.js', 'utf8'), /JSZip v3\.10\.1/, 'reader should vendor JSZip 3.10.1');
 
 assert.match(indexHtml, /打开你的 ChatGPT 导出包/, 'reader should expose the ZIP drop empty state');
 assert.match(indexHtml, /id="settingsModal"/, 'reader should include settings modal');

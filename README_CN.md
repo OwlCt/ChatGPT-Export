@@ -10,7 +10,7 @@ ChatGPT Universal Exporter 用于将 ChatGPT 对话导出为本地 ZIP 文件，
 项目由两部分组成：
 
 - `Tampermonkey.js`：用户脚本，运行于 ChatGPT 页面，将对话打包为 ZIP 文件供下载。
-- `index.html`：离线阅读器，导入 ZIP 后即可浏览、搜索、缓存并导出 PDF，可作为静态站点部署。
+- `reader/index.html`：离线阅读器，导入 ZIP 后即可浏览、搜索、缓存并导出 PDF，可作为静态站点部署。
 
 适用于个人对话备份、项目与团队空间的归档，以及历史记录的离线阅读。
 
@@ -74,7 +74,7 @@ JSON 文件为 ChatGPT 返回的原始对话数据，Markdown 文件由其转换
 
 ### 静态阅读器
 
-`index.html` 是一个本地优先的静态网页，JSZip 直接从仓库 `vendor/` 目录加载而非 CDN。它在浏览器中解析 ZIP，将对话、图片与附件持久化存储于 IndexedDB，为本地图片与文件生成可访问 URL，并负责搜索、侧边栏分组、消息渲染、代码与表格复制、图片预览及来源面板。界面语言、主题与导入偏好亦由其管理。PDF 导出会保留图片与来源引用，用户回合计数与长对话跳转导航同样在此实现。
+`index.html` 是一个本地优先的静态网页，JSZip 直接从仓库 `reader/vendor/` 目录加载而非 CDN。它在浏览器中解析 ZIP，将对话、图片与附件持久化存储于 IndexedDB，为本地图片与文件生成可访问 URL，并负责搜索、侧边栏分组、消息渲染、代码与表格复制、图片预览及来源面板。界面语言、主题与导入偏好亦由其管理。PDF 导出会保留图片与来源引用，用户回合计数与长对话跳转导航同样在此实现。
 
 ### 测试
 
@@ -96,7 +96,7 @@ https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 ```
 
-阅读器则将 JSZip `3.10.1` 内置于仓库 `vendor/` 目录，运行时不依赖 CDN。
+阅读器则将 JSZip `3.10.1` 内置于仓库 `reader/vendor/` 目录，运行时不依赖 CDN。
 
 ## 已知限制
 
@@ -127,13 +127,15 @@ npm test
 ```text
 .
 |-- Tampermonkey.js
-|-- index.html
-|-- reader.html
-|-- assets/
-|   |-- reader.css
-|   |-- reader.js
-|   `-- i18n/
-|-- vendor/
+|-- reader/
+|   |-- index.html
+|   |-- reader.html
+|   |-- openai.svg
+|   |-- assets/
+|   |   |-- reader.css
+|   |   |-- reader.js
+|   |   `-- i18n/
+|   `-- vendor/
 |-- test/
 |   |-- filename.test.js
 |   `-- reader.test.js

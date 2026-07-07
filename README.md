@@ -10,7 +10,7 @@ ChatGPT Universal Exporter exports ChatGPT conversations to a local ZIP archive 
 The project has two parts:
 
 - `Tampermonkey.js` — a userscript that runs on ChatGPT pages and packages conversations into a ZIP download.
-- `index.html` — an offline reader that imports a ZIP for browsing, search, caching, and PDF export, and can be deployed as a static site.
+- `reader/index.html` — an offline reader that imports a ZIP for browsing, search, caching, and PDF export, and can be deployed as a static site.
 
 It is intended for personal backups, archiving project and team-workspace conversations, and reading through history offline.
 
@@ -74,7 +74,7 @@ Each JSON file is the raw conversation data returned by ChatGPT. Each Markdown f
 
 ### Static Reader
 
-`index.html` is a local-first static web page. JSZip is loaded directly from the repository's `vendor/` directory rather than a CDN. It parses the ZIP in the browser, persists conversations, images, and attachments in IndexedDB, creates accessible URLs for local images and files, and handles search, sidebar grouping, message rendering, code and table copy controls, image preview, and source panels. Interface language, theme, and import preferences are managed here as well. PDF export carries through images and source references, and user-turn counting and long-conversation jump navigation are implemented on this side.
+`index.html` is a local-first static web page. JSZip is loaded directly from the repository's `reader/vendor/` directory rather than a CDN. It parses the ZIP in the browser, persists conversations, images, and attachments in IndexedDB, creates accessible URLs for local images and files, and handles search, sidebar grouping, message rendering, code and table copy controls, image preview, and source panels. Interface language, theme, and import preferences are managed here as well. PDF export carries through images and source references, and user-turn counting and long-conversation jump navigation are implemented on this side.
 
 ### Tests
 
@@ -96,7 +96,7 @@ https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 SHA-256: acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 ```
 
-The reader instead vendors JSZip `3.10.1` under the repository's `vendor/` directory, requiring no CDN at runtime.
+The reader instead vendors JSZip `3.10.1` under the repository's `reader/vendor/` directory, requiring no CDN at runtime.
 
 ## Known Limits
 
@@ -127,13 +127,15 @@ Repository layout:
 ```text
 .
 |-- Tampermonkey.js
-|-- index.html
-|-- reader.html
-|-- assets/
-|   |-- reader.css
-|   |-- reader.js
-|   `-- i18n/
-|-- vendor/
+|-- reader/
+|   |-- index.html
+|   |-- reader.html
+|   |-- openai.svg
+|   |-- assets/
+|   |   |-- reader.css
+|   |   |-- reader.js
+|   |   `-- i18n/
+|   `-- vendor/
 |-- test/
 |   |-- filename.test.js
 |   `-- reader.test.js
