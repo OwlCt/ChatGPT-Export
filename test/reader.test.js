@@ -29,6 +29,13 @@ assert.match(compatHtml, /location\.replace\('index\.html'/, 'legacy reader.html
 assert.ok(fs.existsSync('reader/vendor/jszip.min.js'), 'JSZip vendor file should exist');
 assert.match(fs.readFileSync('reader/vendor/jszip.min.js', 'utf8'), /JSZip v3\.10\.1/, 'reader should vendor JSZip 3.10.1');
 
+assert.ok(fs.existsSync('reader/vendor/katex/katex.min.js'), 'KaTeX vendor JS should exist');
+assert.ok(fs.existsSync('reader/vendor/katex/katex.min.css'), 'KaTeX vendor CSS should exist');
+assert.ok(fs.existsSync('reader/vendor/katex/fonts/KaTeX_Main-Regular.woff2'), 'KaTeX woff2 fonts should be vendored');
+assert.match(fs.readFileSync('reader/vendor/katex/katex.min.js', 'utf8'), /0\.16\.11/, 'reader should vendor KaTeX 0.16.11');
+assert.match(indexHtml, /vendor\/katex\/katex\.min\.css(?:\?[^"]+)?"/, 'reader should load KaTeX CSS for math rendering');
+assert.match(indexHtml, /vendor\/katex\/katex\.min\.js(?:\?[^"]+)?"/, 'reader should load KaTeX JS for math rendering');
+
 assert.match(indexHtml, /打开你的 ChatGPT 导出包/, 'reader should expose the ZIP drop empty state');
 assert.match(indexHtml, /id="settingsModal"/, 'reader should include settings modal');
 assert.match(indexHtml, /id="languageSelect"/, 'settings should include language select');
@@ -141,6 +148,12 @@ assert.match(app, /table-col-label/, 'reader should reserve a stable label colum
 assert.match(app, /tableAlignments = line/, 'reader should parse markdown table alignment markers');
 assert.match(app, /class="align-\$\{align\}"/, 'reader should apply table alignment classes');
 assert.match(app, /markdown-divider/, 'reader should render markdown dividers cleanly');
+assert.match(app, /function renderMath/, 'reader should expose a renderMath helper for LaTeX');
+assert.match(app, /katex\.renderToString/, 'reader should render LaTeX math with KaTeX');
+assert.match(app, /math-display/, 'reader should emit display-math blocks for \\[...\\] and $$...$$');
+assert.match(app, /math-inline/, 'reader should emit inline-math spans for \\(...\\) and $...$');
+assert.match(app, /getKatexInlineCss/, 'PDF export should inline KaTeX CSS so math renders in print output');
+assert.match(css, /\.math-display/, 'reader should style display-math blocks');
 assert.match(app, /collectFencedDivLines/, 'reader should parse fenced div blocks such as :::writing');
 assert.match(app, /md-div--/, 'reader should render fenced div blocks as styled containers');
 assert.match(app, /md-div-copy/, 'reader should render a copy button on fenced div cards');

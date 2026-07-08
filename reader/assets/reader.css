@@ -1298,6 +1298,28 @@
       background: var(--border-soft);
     }
 
+    .markdown .math-display {
+      display: block;
+      margin: 0.75em 0;
+      text-align: center;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    .markdown .math-display .katex-display {
+      margin: 0;
+    }
+    .markdown .math-inline .katex {
+      font-size: 1.05em;
+    }
+    .markdown .katex {
+      color: inherit;
+    }
+    .markdown .math-fallback {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      opacity: 0.85;
+    }
+
     .markdown table {
       width: 100%;
       min-width: min(100%, 520px);

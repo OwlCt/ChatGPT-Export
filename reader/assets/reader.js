@@ -2706,6 +2706,19 @@
         return merged;
       }
 
+      function renderMath(latex, displayMode) {
+        const source = String(latex ?? "");
+        if (typeof katex === "undefined" || !katex || typeof katex.renderToString !== "function") {
+          return `<span class="math-fallback">${escapeHtml(source)}</span>`;
+        }
+        return katex.renderToString(source, {
+          displayMode: Boolean(displayMode),
+          throw: false,
+          strict: "ignore",
+          output: "htmlAndMathml"
+        });
+      }
+
       function renderMarkdown(markdown, baseDir) {
         const lines = cleanMessageContent(markdown).replace(/\r\n?/g, "\n").split("\n");
         const html = [];
@@ -2891,6 +2904,15 @@
           flushBlockquote();
         };
 
+        const collectMathBlock = (lines, startIndex, closePattern) => {
+          const content = [];
+          for (let j = startIndex + 1; j < lines.length; j++) {
+            if (closePattern.test(lines[j])) return { content: content.join("\n"), endIndex: j };
+            content.push(lines[j]);
+          }
+          return { content: content.join("\n"), endIndex: lines.length - 1 };
+        };
+
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
           const fence = line.match(/^```([\w#+.-]*)\s*$/);
@@ -2907,6 +2929,25 @@
           }
           if (inCode) {
             codeLines.push(line);
+            continue;
+          }
+
+          // Display math blocks: \[ ... \] and $$ ... $$ (ChatGPT/OpenAI display style),
+          // either split across lines or on a single line.
+          const mathBlockOpen = line.match(/^\s*\\\[\s*$/) ? "bracket"
+            : line.match(/^\s*\$\$\s*$/) ? "dollar" : null;
+          if (mathBlockOpen) {
+            flushAll();
+            const closePattern = mathBlockOpen === "bracket" ? /^\s*\\\]\s*$/ : /^\s*\$\$\s*$/;
+            const collected = collectMathBlock(lines, i, closePattern);
+            html.push(`<div class="math-display">${renderMath(collected.content, true)}</div>`);
+            i = collected.endIndex;
+            continue;
+          }
+          const mathSingle = line.match(/^\s*\\\[(.+?)\\\]\s*$/) || line.match(/^\s*\$\$(.+?)\$\$\s*$/);
+          if (mathSingle) {
+            flushAll();
+            html.push(`<div class="math-display">${renderMath(mathSingle[1], true)}</div>`);
             continue;
           }
 
@@ -3063,7 +3104,19 @@
       }
 
       function renderInline(text, baseDir, footnoteByIndex = new Map()) {
-        let output = escapeHtml(text);
+        const mathSegments = [];
+        const stashMath = latex => {
+          const token = `@@MATH${mathSegments.length}@@`;
+          mathSegments.push(`<span class="math-inline">${renderMath(latex, false)}</span>`);
+          return token;
+        };
+        let working = String(text || "");
+        // Extract inline math from the raw text (before escapeHtml) so KaTeX receives
+        // unescaped LaTeX. \(...\) is the ChatGPT/OpenAI inline style; $...$ covers
+        // hand-written markdown. The $ guard avoids matching currency such as "$5 and $10".
+        working = working.replace(/\\\(([^]*?)\\\)/g, (_, lat) => stashMath(lat));
+        working = working.replace(/\$(?!\s)([^\n$]*[^\n$\s])\$/g, (_, lat) => stashMath(lat));
+        let output = escapeHtml(working);
         const footnoteRefs = [];
         const makeFootnoteRef = (index, label = "") => {
           const token = `\u0000FN${footnoteRefs.length}\u0000`;
@@ -3099,6 +3152,9 @@
         output = output.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
         output = output.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
         output = output.replace(/\n/g, "<br>");
+        mathSegments.forEach((html, index) => {
+          output = output.split(`@@MATH${index}@@`).join(html);
+        });
         footnoteRefs.forEach((ref, index) => {
           output = output.split(`\u0000FN${index}\u0000`).join(ref);
         });
@@ -3764,6 +3820,11 @@
           }
           .markdown > :first-child { margin-top: 0; }
           .markdown > :last-child { margin-bottom: 0; }
+          .markdown .math-display { display: block; margin: 0.75em 0; text-align: center; }
+          .markdown .math-display .katex-display { margin: 0; }
+          .markdown .math-inline .katex { font-size: 1.05em; }
+          .markdown .katex { color: inherit; }
+          .markdown .math-fallback { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
           .markdown p,
           .markdown ul,
           .markdown ol,
@@ -4132,7 +4193,41 @@
         `;
       }
 
-      function buildPdfExportDocument(conversation, options) {
+      let katexInlineCssPromise = null;
+      function getKatexInlineCss() {
+        if (katexInlineCssPromise) return katexInlineCssPromise;
+        katexInlineCssPromise = (async () => {
+          try {
+            const cssUrl = new URL("vendor/katex/katex.min.css", location.href).href;
+            const cssText = await (await fetch(cssUrl)).text();
+            // Inline the woff2 fonts as data URIs so math renders in the about:blank
+            // print window where relative font URLs would not resolve.
+            const paths = [...new Set([...cssText.matchAll(/url\((fonts\/[^)]+\.woff2)\)/g)].map(m => m[1]))];
+            const dataUris = new Map();
+            await Promise.all(paths.map(async p => {
+              try {
+                const buf = await (await fetch(new URL(p, cssUrl).href)).arrayBuffer();
+                dataUris.set(p, `data:font/woff2;base64,${arrayBufferToBase64(buf)}`);
+              } catch (_) {}
+            }));
+            return cssText.replace(/url\((fonts\/[^)]+\.woff2)\)/g, (_, p) => dataUris.get(p) ? `url(${dataUris.get(p)})` : `url(${p})`);
+          } catch (_) {
+            return "";
+          }
+        })();
+        return katexInlineCssPromise;
+      }
+      function arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+      }
+
+      function buildPdfExportDocument(conversation, options, katexCss) {
         const groups = groupMessages(conversation.messages || []);
         const createdAt = conversation.createdAt ? t("pdfExport.createdAt", { time: formatTimestamp(conversation.createdAt) }) : "";
         const generatedAt = t("pdfExport.generatedAt", { time: formatTimestamp(Date.now() / 1000) });
@@ -4153,7 +4248,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(sanitizeFilename(title, t("pdf.filenameFallback")))}</title>
-  <style>${pdfExportDocumentStyles()}</style>
+  <style>${pdfExportDocumentStyles()}
+${katexCss || ""}</style>
 </head>
 <body class="${escapeHtml(bodyClass)}">
   <main class="pdf-export-doc">
@@ -4185,7 +4281,7 @@
 </html>`;
       }
 
-      function printConversationPdf() {
+      async function printConversationPdf() {
         const conversation = getSelectedConversation();
         if (!conversation) return;
         const exportWindow = window.open("", "_blank");
@@ -4194,7 +4290,8 @@
           return;
         }
         closePdfExportModal();
-        const html = buildPdfExportDocument(conversation, pdfExportOptions());
+        const katexCss = await getKatexInlineCss();
+        const html = buildPdfExportDocument(conversation, pdfExportOptions(), katexCss);
         exportWindow.document.open();
         exportWindow.document.write(html);
         exportWindow.document.close();
