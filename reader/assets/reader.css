@@ -1249,8 +1249,15 @@
       margin-bottom: 0;
     }
 
-    .md-div--writing {
+    .md-div--writing,
+    .md-div--canvas {
       border-left: 3px solid var(--accent);
+    }
+
+    .md-div--reasoning,
+    .md-div--tool,
+    .md-div--app {
+      border-left: 3px solid var(--muted);
     }
 
     .md-div-copy {

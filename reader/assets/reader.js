@@ -650,8 +650,8 @@
       function normalizeAssetId(raw) {
         if (!raw || typeof raw !== "string") return "";
         const trimmed = raw.trim();
-        if (trimmed.startsWith("sediment://")) {
-          const noScheme = trimmed.replace(/^sediment:\/\//, "");
+        if (trimmed.startsWith("sediment://") || trimmed.startsWith("file-service://")) {
+          const noScheme = trimmed.replace(/^(?:sediment|file-service):\/\//, "");
           const path = noScheme.split(/[?#]/)[0].split("/").filter(Boolean).pop();
           return path || trimmed.replace(/[^\w.-]/g, "_");
         }
@@ -1134,153 +1134,489 @@
         };
       }
 
-      function extractConversationMessages(convData) {
-        const mapping = convData?.mapping;
-        if (!mapping || typeof mapping !== "object") return [];
+      function looksLikeDilSource(text) {
+          return /\{@body\b|\{#if\b|\{#each\b|<AppBlock\b|<\/?(?:box|row|col|grid|text|title|button|AsyncImage)\b|\bDIL\.useState\b/i.test(String(text || ''));
+      }
 
-        const messages = [];
-        const mappingKeys = Object.keys(mapping);
-        const rootId = mapping["client-created-root"]
-          ? "client-created-root"
-          : mappingKeys.find(id => !mapping[id]?.parent) || mappingKeys[0];
-        const visited = new Set();
+      function scanToMatchingBrace(text, openIndex) {
+          let depth = 0;
+          let quote = '';
+          for (let i = openIndex; i < text.length; i++) {
+              const ch = text[i];
+              if (quote) {
+                  if (ch === '\\') { i += 1; continue; }
+                  if (ch === quote) quote = '';
+                  continue;
+              }
+              if (ch === '"' || ch === '\'' || ch === '`') { quote = ch; continue; }
+              if (ch === '{') depth += 1;
+              else if (ch === '}') {
+                  depth -= 1;
+                  if (depth === 0) return i;
+              }
+          }
+          return text.length - 1;
+      }
 
-        const collectTextPart = (part, textParts, images, files) => {
-          if (typeof part === "string") {
-            textParts.push(part);
-            return;
+      function stripDilSource(text) {
+          const source = String(text || '').replace(/<AppBlock\b[^>]*>[\s\S]*?<\/AppBlock>/gi, '\n');
+          const directiveStarts = ['{@body', '{#if', '{#each', '{:elif', '{:else'];
+          let withoutDirectives = '';
+          for (let i = 0; i < source.length; i++) {
+              const slice = source.slice(i);
+              if (slice.startsWith('{/if}') || slice.startsWith('{/each}')) {
+                  i += slice.startsWith('{/if}') ? 4 : 6;
+                  continue;
+              }
+              const matched = directiveStarts.find(token => slice.startsWith(token));
+              if (!matched) {
+                  withoutDirectives += source[i];
+                  continue;
+              }
+              i = scanToMatchingBrace(source, i);
           }
-          if (!part || typeof part !== "object") return;
-          const inspectedFile = inspectFileAttachment(part.file || part);
-          if (inspectedFile) {
-            addFileIfMissing(files, inspectedFile, "text_part");
-            textParts.push(`<!-- file:${encodeURIComponent(inspectedFile.key)} -->`);
-            return;
-          }
-          if (typeof part.text === "string") textParts.push(part.text);
-          const isImage = part.content_type === "image_asset" || part.content_type === "image_asset_pointer" || part.image_asset;
-          if (isImage) {
-            const inspected = inspectImageAsset(part.image_asset || part);
-            if (inspected) {
-              textParts.push(`<!-- image:${inspected.asset_pointer} -->`);
-              addImageIfMissing(images, inspected, "text_part");
-            }
-          }
-        };
+          const withoutTags = withoutDirectives.replace(/<\/?[A-Za-z][\w:-]*\b[^>]*\/?>/g, '');
+          const withoutExpr = withoutTags.replace(/\{[^{}\n]{0,400}\}/g, match => {
+              const inner = match.slice(1, -1).trim();
+              if (!inner) return '';
+              if (/^[A-Za-z_$][\w$.]*(\([^)]*\))?$/.test(inner) || /[=()[\].]/.test(inner)) return '';
+              return match;
+          });
+          return withoutExpr.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      }
 
-        const collectParts = content => {
-          const textParts = [];
+      function readDilDocument(metadata) {
+          if (!metadata || typeof metadata !== 'object') return null;
+          const doc = metadata.model_dil_v2 || metadata.model_dil || metadata.modelDil || null;
+          return doc && typeof doc === 'object' ? doc : null;
+      }
+
+      function readDilFallback(metadata) {
+          const text = readDilDocument(metadata)?.fallbackMarkdown;
+          return typeof text === 'string' ? text.trim() : '';
+      }
+
+      function extractAppBlocks(text) {
+          const blocks = [];
+          const pattern = /<AppBlock\b([^>]*)>([\s\S]*?)<\/AppBlock>/gi;
+          let match;
+          while ((match = pattern.exec(String(text || '')))) {
+              const attrs = match[1] || '';
+              const titleMatch = attrs.match(/\btitle\s*=\s*"([^"]*)"/i) || attrs.match(/\btitle\s*=\s*'([^']*)'/i);
+              blocks.push({
+                  title: titleMatch ? titleMatch[1] : '',
+                  html: String(match[2] || '').trim()
+              });
+          }
+          return blocks;
+      }
+
+      function fenceCode(code, lang) {
+          const body = String(code || '');
+          const longest = (body.match(/`{3,}/g) || []).reduce((max, run) => Math.max(max, run.length), 2);
+          const fence = '`'.repeat(longest + 1);
+          return `${fence}${lang || ''}\n${body}\n${fence}`;
+      }
+
+      function parseJsonObject(text) {
+          if (typeof text !== 'string') return null;
+          const trimmed = text.trim();
+          if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+          try {
+              const value = JSON.parse(trimmed);
+              return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+          } catch (_) {
+              return null;
+          }
+      }
+
+      function inspectCanvasMessage(msg) {
+          const recipient = `${msg?.recipient || ''} ${msg?.author?.name || ''}`;
+          const metadata = msg?.metadata || {};
+          const canvasMeta = metadata.canvas || metadata.textdoc || metadata.canmore || null;
+          const signaled = /canmore|textdoc|canvas/i.test(recipient) || Boolean(canvasMeta);
+          const content = msg?.content || {};
+          const direct = typeof content.text === 'string' ? content.text : '';
+          const parsed = parseJsonObject(direct);
+          const body = (typeof parsed?.content === 'string' && parsed.content)
+              || (typeof parsed?.textdoc?.content === 'string' && parsed.textdoc.content)
+              || (typeof canvasMeta?.content === 'string' && canvasMeta.content)
+              || '';
+          if (!body) return null;
+          const type = String(parsed?.type || parsed?.textdoc_type || canvasMeta?.textdoc_type || canvasMeta?.type || '');
+          if (!signaled && type !== 'document' && type !== 'code' && type !== 'text') return null;
+          const title = parsed?.name || parsed?.title || parsed?.textdoc?.title || canvasMeta?.title || canvasMeta?.name || '';
+          return { title: String(title || ''), type, body: String(body) };
+      }
+
+      function inspectToolMessage(msg) {
+          const role = msg?.author?.role;
+          const content = msg?.content || {};
+          const contentType = String(content.content_type || '');
+          const sideTypes = ['code', 'execution_output', 'computer_output', 'tether_browsing_display', 'tether_quote', 'system_error', 'sonic_webpage'];
+          const toolLike = role === 'tool' || (role === 'assistant' && sideTypes.includes(contentType) && contentType !== 'code');
+          if (!toolLike || inspectCanvasMessage(msg)) return null;
+          let text = '';
+          if (typeof content.text === 'string') text = content.text;
+          else if (typeof content.summary === 'string' && content.summary) text = content.summary;
+          else if (typeof content.result === 'string') text = content.result;
+          else if (Array.isArray(content.parts)) text = content.parts.filter(part => typeof part === 'string').join('\n');
+          text = String(text || '').trim();
           const images = [];
-          const files = [];
-          const contentType = content?.content_type;
-          const parts = Array.isArray(content?.parts) ? content.parts : [];
-          const handleImagePart = (imgAsset, source) => {
-            const inspected = inspectImageAsset(imgAsset);
-            if (inspected) addImageIfMissing(images, inspected, source);
+          const screenshot = content.screenshot || content.image || content.asset || null;
+          const inspected = inspectImageAsset(screenshot?.image_asset || screenshot);
+          if (inspected) images.push({ ...inspected, source: 'tool' });
+          if (!text && images.length === 0) return null;
+          const lang = content.language && content.language !== 'unknown' ? String(content.language) : '';
+          return {
+              name: String(msg?.author?.name || msg?.recipient || contentType || 'tool'),
+              text,
+              lang,
+              contentType,
+              images
           };
-          const handleFilePart = (fileAsset, source) => {
-            const inspected = inspectFileAttachment(fileAsset?.file || fileAsset);
-            if (!inspected) return;
-            addFileIfMissing(files, inspected, source);
-            textParts.push(`<!-- file:${encodeURIComponent(inspected.key)} -->`);
-          };
-          const isImageContentType = ct => ct === "image_asset" || ct === "image_asset_pointer";
-          const isFileContentType = ct => {
-            const text = String(ct || "").toLowerCase();
-            return text.includes("file") || text.includes("attachment");
-          };
+      }
 
-          if (contentType === "text") {
-            parts.forEach(part => collectTextPart(part, textParts, images, files));
-          } else if (isImageContentType(contentType)) {
-            handleImagePart(content.image_asset || content, "image_asset");
-          } else if (isFileContentType(contentType)) {
-            handleFilePart(content.file || content, "file_asset");
-          } else if (contentType === "multimodal_text") {
-            parts.forEach(part => {
-              if (typeof part === "string") {
-                collectTextPart(part, textParts, images, files);
-              } else if (part && isImageContentType(part.content_type || part.type)) {
-                handleImagePart(part.image_asset || part, "multimodal_text");
-              } else if (part && isFileContentType(part.content_type || part.type)) {
-                handleFilePart(part.file || part, "multimodal_text");
-              } else if (part && typeof part === "object" && part.text) {
-                collectTextPart(part.text, textParts, images, files);
-              } else {
-                collectTextPart(part, textParts, images, files);
-              }
-            });
-          } else if (contentType && parts.length) {
-            parts.forEach(part => collectTextPart(part, textParts, images, files));
+      function formatThoughts(content) {
+          const thoughts = Array.isArray(content?.thoughts) ? content.thoughts : [];
+          return thoughts.map(thought => {
+              const summary = String(thought?.summary || '').trim();
+              const body = String(thought?.content || (Array.isArray(thought?.chunks) ? thought.chunks.join('') : '') || '').trim();
+              if (summary && body && summary !== body) return `**${summary}**\n\n${body}`;
+              return body || summary;
+          }).filter(Boolean).join('\n\n');
+      }
+
+      function emptySideChannel() {
+          return { thinking: [], recap: '', tools: [], canvases: [], images: [] };
+      }
+
+      function cloneSideChannel(side) {
+          const source = side || emptySideChannel();
+          return {
+              thinking: source.thinking.slice(),
+              recap: source.recap || '',
+              tools: source.tools.slice(),
+              canvases: source.canvases.slice(),
+              images: source.images.map(image => ({ ...image }))
+          };
+      }
+
+      function hasSideChannel(side) {
+          return Boolean(side && (side.thinking.length || side.recap || side.tools.length || side.canvases.length || side.images.length));
+      }
+
+      function formatToolBlock(tool) {
+          const heading = `**${t('block.tool')}${tool.name ? `: ${tool.name}` : ''}**`;
+          let body = tool.text || '';
+          if (tool.contentType === 'code' || tool.lang || tool.contentType === 'execution_output' || tool.contentType === 'tether_browsing_display' || tool.contentType === 'system_error') {
+              body = body ? fenceCode(body, tool.lang || '') : '';
           }
+          return `:::tool\n${heading}\n\n${body}\n:::`;
+      }
 
-          return { rawText: textParts.filter(Boolean).join("\n"), images, files };
-        };
+      function formatSideChannel(side) {
+          if (!hasSideChannel(side)) return '';
+          const chunks = [];
+          if (side.thinking.length || side.recap) {
+              const heading = side.recap || t('block.reasoning');
+              const body = side.thinking.filter(Boolean).join('\n\n');
+              chunks.push(`:::reasoning\n**${heading}**${body ? `\n\n${body}` : ''}\n:::`);
+          }
+          side.canvases.forEach(canvas => {
+              const label = canvas.title ? `${t('block.canvas')}: ${canvas.title}` : t('block.canvas');
+              const body = canvas.type === 'code' ? fenceCode(canvas.body, '') : canvas.body;
+              chunks.push(`:::canvas\n**${label}**\n\n${body}\n:::`);
+          });
+          side.tools.forEach(tool => chunks.push(formatToolBlock(tool)));
+          return chunks.join('\n\n');
+      }
 
-        const traverse = nodeId => {
-          if (!nodeId || visited.has(nodeId)) return;
-          visited.add(nodeId);
-          const node = mapping[nodeId];
-          if (!node) return;
-          const msg = node.message;
-          if (msg) {
-            const author = msg.author?.role;
-            const isHidden = msg.metadata?.is_visually_hidden_from_conversation ||
-              msg.metadata?.is_contextual_answers_system_message;
-            if (author && author !== "system" && !isHidden) {
-              const { rawText = "", images = [], files: partFiles = [] } = msg.content ? (collectParts(msg.content) || {}) : {};
-              const files = partFiles.slice();
-              if (Array.isArray(msg.metadata?.attachments)) {
-                msg.metadata.attachments.forEach(att => {
-                  if (!att) return;
-                  if (isImageContentType(att.content_type || att.type || att.mime_type)) {
-                    const inspected = inspectImageAsset(att.image_asset || att);
-                    if (inspected) addImageIfMissing(images, inspected, "attachment");
-                    return;
-                  }
-                  const file = inspectFileAttachment(att);
-                  addFileIfMissing(files, file, "attachment");
-                });
-              }
+      function formatAppBlocks(blocks) {
+          return (blocks || []).filter(block => block?.html).map(block => {
+              const label = block.title ? `${t('block.app')}: ${block.title}` : t('block.app');
+              return `:::app\n**${label}**\n\n${fenceCode(block.html, 'html')}\n:::`;
+          }).join('\n\n');
+      }
 
-              const contentReferences = msg.metadata?.content_references || [];
-              if (Array.isArray(contentReferences)) {
-                contentReferences.forEach(ref => {
-                  const file = inspectReferenceFile(ref);
-                  if (!file) return;
-                  addFileIfMissing(files, file, "content_reference");
-                });
-              }
+      function collectGenuiImages(metadata, images) {
+          const results = readDilDocument(metadata)?.appData?.opGenui?.componentResults;
+          if (!results || typeof results !== 'object') return;
+          Object.values(results).forEach(result => {
+              const state = result?.state;
+              if (!state || typeof state !== 'object') return;
+              const candidates = [];
+              if (Array.isArray(state.images)) candidates.push(...state.images);
+              if (state.image && typeof state.image === 'object') candidates.push(state.image);
+              candidates.forEach(img => {
+                  if (!img || typeof img !== 'object') return;
+                  const contentUrl = img.content_url || img.download_url || '';
+                  const pageUrl = img.url || '';
+                  const downloadUrl = isFirstPartyAssetUrl(contentUrl)
+                      ? contentUrl
+                      : (isFirstPartyAssetUrl(pageUrl) ? pageUrl : '');
+                  const pointer = img.asset_pointer || img.file_id || img.id || downloadUrl;
+                  if (!pointer) return;
+                  addImageIfMissing(images, {
+                      asset_pointer: pointer,
+                      url: downloadUrl || null,
+                      content_type: img.content_type || img.mime_type || null,
+                      file_id: img.file_id || null,
+                      dispositionLabel: String(img.alt || img.title || img.query || result?.componentName || 'image').slice(0, 200)
+                  }, 'genui');
+              });
+          });
+      }
 
-              let processedText = rawText;
-              let footnotes = [];
-              if (Array.isArray(contentReferences) && contentReferences.length > 0) {
-                const processed = processContentReferences(rawText, contentReferences);
-                processedText = processed.text;
-                footnotes = processed.footnotes;
-              }
-              const cleaned = cleanMessageContent(processedText);
-              if ((cleaned && cleaned.length > 0) || images.length > 0 || files.length > 0) {
-                messages.push({
-                  messageId: msg.id || nodeId,
-                  role: author,
-                  content: cleaned || "",
-                  create_time: msg.create_time || null,
-                  footnotes,
-                  images,
-                  files
-                });
-              }
+      function rewriteRemoteMarkdownImages(text, images) {
+        return String(text || "").replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (full, alt, url) => {
+            if (!isFirstPartyAssetUrl(url)) return alt || "";
+            let image = (images || []).find(item => item?.url === url || item?.asset_pointer === url);
+            if (!image) {
+                addImageIfMissing(images, {
+                    asset_pointer: url,
+                    url,
+                    dispositionLabel: String(alt || "image").slice(0, 200)
+                }, "markdown");
+                image = (images || []).find(item => item?.url === url || item?.asset_pointer === url);
             }
-          }
-          if (Array.isArray(node.children)) {
-            node.children.forEach(childId => traverse(childId));
-          }
-        };
+            return image ? `\n\n<!-- image:${image.asset_pointer} -->\n` : (alt || "");
+        }).replace(/<img\b[^>]*>/gi, "");
+      }
 
-        if (rootId) traverse(rootId);
-        else mappingKeys.forEach(traverse);
-        return messages;
+      function extractConversationMessages(convData) {
+          const mapping = convData?.mapping;
+          if (!mapping) return [];
+
+          const messages = [];
+          const mappingKeys = Object.keys(mapping);
+          const rootId = mapping['client-created-root']
+              ? 'client-created-root'
+              : mappingKeys.find(id => !mapping[id]?.parent) || mappingKeys[0];
+          const visited = new Set();
+
+          // Collect parts of a single message, capturing both text and image pointers.
+          const collectParts = (content) => {
+              let textParts = [];
+              const images = [];
+              const files = [];
+
+              const contentType = content?.content_type;
+              const parts = Array.isArray(content?.parts) ? content.parts : [];
+
+              const handleImagePart = (imgAsset, source) => {
+                  const inspected = inspectImageAsset(imgAsset);
+                  if (!inspected) return;
+                  addImageIfMissing(images, inspected, source);
+              };
+              const handleFilePart = (fileAsset, source) => {
+                  const inspected = inspectFileAttachment(fileAsset?.file || fileAsset);
+                  if (!inspected) return;
+                  addFileIfMissing(files, inspected, source);
+                  textParts.push(`<!-- file:${encodeURIComponent(inspected.key)} -->`);
+              };
+
+              // 判断是否为图片类型的 content_type
+              const isImageContentType = (ct) => ct === 'image_asset' || ct === 'image_asset_pointer';
+              const isFileContentType = (ct) => {
+                  const text = String(ct || '').toLowerCase();
+                  return text.includes('file') || text.includes('attachment');
+              };
+
+              if (contentType === 'text' || !contentType) {
+                  parts.forEach(part => collectTextPart(part, textParts, images, files));
+              } else if (isImageContentType(contentType)) {
+                  // 旧格式: content.image_asset 嵌套; 新格式: content 本身就是 asset
+                  handleImagePart(content.image_asset || content, 'image_asset');
+              } else if (isFileContentType(contentType)) {
+                  handleFilePart(content.file || content, 'file_asset');
+              } else if (contentType === 'multimodal_text') {
+                  parts.forEach(part => {
+                      if (typeof part === 'string') {
+                          collectTextPart(part, textParts, images, files);
+                      } else if (part && isImageContentType(part.content_type || part.type)) {
+                          // 新格式: part 自身就是 image_asset_pointer，无嵌套的 .image_asset
+                          handleImagePart(part.image_asset || part, 'multimodal_text');
+                      } else if (part && isFileContentType(part.content_type || part.type)) {
+                          handleFilePart(part.file || part, 'multimodal_text');
+                      } else if (part && typeof part === 'object' && part.text) {
+                          collectTextPart(part.text, textParts, images, files);
+                      } else {
+                          collectTextPart(part, textParts, images, files);
+                      }
+                  });
+              } else if (contentType === 'audio_transcription') {
+                  const transcript = content.text || content.transcript || '';
+                  if (transcript) textParts.push(String(transcript));
+                  parts.forEach(part => collectTextPart(part, textParts, images, files));
+              } else if (contentType === 'code' || contentType === 'execution_output' || contentType === 'tether_quote' || contentType === 'system_error') {
+                  if (typeof content.text === 'string' && content.text) textParts.push(content.text);
+                  parts.forEach(part => collectTextPart(part, textParts, images, files));
+              } else if (contentType === 'tether_browsing_display' || contentType === 'sonic_webpage') {
+                  const visible = content.summary || content.result || content.text || '';
+                  if (visible) textParts.push(String(visible));
+              } else if (contentType && Array.isArray(parts) && parts.length) {
+                  // Fallback: any content_type that still carries parts — gather text & be permissive about images.
+                  parts.forEach(part => collectTextPart(part, textParts, images, files));
+              } else if (typeof content?.text === 'string' && content.text) {
+                  textParts.push(content.text);
+              }
+
+              const rawText = textParts.filter(Boolean).join('\n');
+              return { rawText, images, files };
+          };
+
+          const collectTextPart = (part, textParts, images, files) => {
+              if (typeof part === 'string') { textParts.push(part); return; }
+              if (part && typeof part === 'object') {
+                  const inspectedFile = inspectFileAttachment(part.file || part);
+                  if (inspectedFile) {
+                      addFileIfMissing(files, inspectedFile, 'text_part');
+                      textParts.push(`<!-- file:${encodeURIComponent(inspectedFile.key)} -->`);
+                      return;
+                  }
+                  if (typeof part.text === 'string') textParts.push(part.text);
+                  const isImg = part.content_type === 'image_asset' || part.content_type === 'image_asset_pointer' || part.image_asset;
+                  if (isImg) {
+                      const inspected = inspectImageAsset(part.image_asset || part);
+                      if (inspected) {
+                          textParts.push(`<!-- image:${inspected.asset_pointer} -->`);
+                          if (images) addImageIfMissing(images, inspected, 'text_part');
+                      }
+                  }
+              }
+          };
+
+          const absorbSideImages = (images, side) => {
+              (side?.images || []).forEach(image => addImageIfMissing(images, image, image.source || 'tool'));
+          };
+
+          const pushVisibleMessage = (msg, nodeId, author, body, images, files, footnotes) => {
+              const cleaned = cleanMessageContent(body);
+              const hasText = cleaned && cleaned.length > 0;
+              const hasImages = images.length > 0;
+              const hasFiles = files.length > 0;
+              if (hasText || hasImages || hasFiles) {
+                  messages.push({
+                      messageId: msg?.id || nodeId,
+                      role: author === 'user' ? 'user' : (author || 'assistant'),
+                      content: cleaned || '',
+                      create_time: msg?.create_time || null,
+                      footnotes,
+                      images,
+                      files
+                  });
+              }
+          };
+
+          const traverse = (nodeId, inherited) => {
+              if (!nodeId || visited.has(nodeId)) return;
+              visited.add(nodeId);
+              const node = mapping[nodeId];
+              if (!node) return;
+
+              let pending = cloneSideChannel(inherited);
+              let consumed = false;
+              const msg = node.message;
+              if (msg) {
+                  const author = msg.author?.role;
+                  const content = msg.content;
+                  const contentType = content?.content_type;
+                  const isHidden = msg.metadata?.is_visually_hidden_from_conversation ||
+                      msg.metadata?.is_contextual_answers_system_message;
+                  const preamble = Boolean(msg.metadata?.is_thinking_preamble_message);
+
+                  if (contentType === 'thoughts') {
+                      const text = formatThoughts(content);
+                      if (text) pending.thinking.push(text);
+                  } else if (contentType === 'reasoning_recap') {
+                      const recap = String(content?.content || '').trim();
+                      const duration = Number(msg.metadata?.finished_duration_sec);
+                      pending.recap = recap || (Number.isFinite(duration) && duration > 0
+                          ? t('block.thoughtFor', { seconds: Math.round(duration) })
+                          : pending.recap);
+                  } else if (preamble && author !== 'user') {
+                      const collected = content ? collectParts(content) : { rawText: '' };
+                      if (collected.rawText) pending.thinking.push(collected.rawText);
+                  } else if (author && author !== 'system') {
+                      const canvas = inspectCanvasMessage(msg);
+                      const tool = inspectToolMessage(msg);
+                      if (canvas && (author === 'tool' || contentType === 'code')) {
+                          pending.canvases.push(canvas);
+                      } else if (tool && (author === 'tool' || tool.contentType !== 'code')) {
+                          pending.tools.push(tool);
+                          (tool.images || []).forEach(image => addImageIfMissing(pending.images, image, 'tool'));
+                      } else if (!(isHidden && author !== 'user')) {
+                          const { rawText: collectedText = '', images = [], files: partFiles = [] } = content ? (collectParts(content) || {}) : {};
+                          const files = partFiles.slice();
+                          const originalText = collectedText;
+
+                          if (Array.isArray(msg.metadata?.attachments)) {
+                              msg.metadata.attachments.forEach(att => {
+                                  if (!att) return;
+                                  if (isImageContentType(att.content_type || att.type || att.mime_type)) {
+                                      const inspected = inspectImageAsset(att.image_asset || att);
+                                      if (inspected) addImageIfMissing(images, inspected, 'attachment');
+                                      return;
+                                  }
+                                  const file = inspectFileAttachment(att);
+                                  addFileIfMissing(files, file, 'attachment');
+                              });
+                          }
+
+                          const contentReferences = msg.metadata?.content_references || [];
+                          if (Array.isArray(contentReferences)) {
+                              contentReferences.forEach(ref => {
+                                  const file = inspectReferenceFile(ref);
+                                  if (!file) return;
+                                  addFileIfMissing(files, file, 'content_reference');
+                              });
+                          }
+
+                          collectGenuiImages(msg.metadata, images);
+                          absorbSideImages(images, pending);
+                          const fallback = readDilFallback(msg.metadata);
+                          let answerText = fallback || (looksLikeDilSource(originalText) ? stripDilSource(originalText) : originalText);
+                          answerText = rewriteRemoteMarkdownImages(answerText, images);
+                          let footnotes = [];
+                          if (Array.isArray(contentReferences) && contentReferences.length > 0) {
+                              const processed = processContentReferences(answerText, contentReferences);
+                              answerText = processed.text;
+                              footnotes = processed.footnotes;
+                          }
+                          const canvasBlock = canvas && !answerText.includes(String(canvas.body || '').slice(0, 80))
+                              ? formatSideChannel({ thinking: [], recap: '', tools: [], canvases: [canvas], images: [] })
+                              : '';
+                          const body = [
+                              formatSideChannel(pending),
+                              canvasBlock,
+                              answerText,
+                              formatAppBlocks(extractAppBlocks(originalText))
+                          ].filter(Boolean).join('\n\n');
+                          pushVisibleMessage(msg, nodeId, author, body, images, files, footnotes);
+                          pending = emptySideChannel();
+                          consumed = true;
+                      }
+                  }
+              }
+
+              const forChildren = consumed ? emptySideChannel() : pending;
+              if (Array.isArray(node.children) && node.children.length) {
+                  node.children.forEach(childId => traverse(childId, cloneSideChannel(forChildren)));
+              } else if (!consumed && hasSideChannel(forChildren)) {
+                  const images = [];
+                  absorbSideImages(images, forChildren);
+                  pushVisibleMessage(msg, nodeId, 'assistant', formatSideChannel(forChildren), images, [], []);
+              }
+          };
+
+          if (rootId) {
+              traverse(rootId, emptySideChannel());
+          } else {
+              mappingKeys.forEach(id => traverse(id, emptySideChannel()));
+          }
+
+          return messages;
       }
 
       function parseMarkdownMessages(markdown) {
@@ -1472,8 +1808,9 @@
 
       function resolveMarkdownImageUrl(src, baseDir) {
         const raw = String(src || "").trim().replace(/^<|>$/g, "");
-        const safe = safeUrl(raw);
-        if (safe) return safe;
+        // Offline reader does not load remote images. Blob and data URLs are local; everything else must be in the ZIP.
+        if (/^(blob:|data:image\/)/i.test(raw)) return raw;
+        if (/^https?:/i.test(raw)) return "";
         const path = joinZipPath(baseDir || "", decodeURIComponentSafe(raw));
         const record = state.imageByFullPath.get(path);
         return record?.url || "";
@@ -3869,8 +4206,14 @@
           }
           .md-div > :first-child { margin-top: 0; }
           .md-div > :last-child { margin-bottom: 0; }
-          .md-div--writing {
+          .md-div--writing,
+          .md-div--canvas {
             border-left: 3px solid #10a37f;
+          }
+          .md-div--reasoning,
+          .md-div--tool,
+          .md-div--app {
+            border-left: 3px solid #94a3b8;
           }
           .markdown-divider {
             border: 0;

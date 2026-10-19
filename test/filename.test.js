@@ -18,6 +18,12 @@ const testExport = `
         cleanMessageContent,
         detectScriptLocale,
         getScriptTranslation,
+        normalizeAssetId,
+        stripDilSource,
+        looksLikeDilSource,
+        readDilFallback,
+        conversationPageAdvance,
+        isFirstPartyAssetUrl,
     };
 `;
 script = script.replace(/\n\}\)\(\);\s*$/, `${testExport}\n})();`);
@@ -207,5 +213,167 @@ assert.equal(duplicateImageMessages[0].images.length, 1);
 assert.equal(duplicateImageMessages[0].images[0].asset_pointer, 'sediment://file_image123');
 assert.equal(duplicateImageMessages[0].images[0].url, 'https://example.test/image.png');
 assert.equal(duplicateImageMessages[0].images[0].source, 'multimodal_text,attachment');
+
+assert.equal(helpers.normalizeAssetId('file-service://file-abc/file_123'), 'file_123');
+assert.equal(helpers.normalizeAssetId('sediment://file_abc'), 'file_abc');
+assert.equal(helpers.isFirstPartyAssetUrl('https://images.openai.com/chart.png'), true);
+assert.equal(helpers.isFirstPartyAssetUrl('https://files.oaiusercontent.com/a.png'), true);
+assert.equal(helpers.isFirstPartyAssetUrl('/backend-api/files/file_123'), true);
+assert.equal(helpers.isFirstPartyAssetUrl('https://evil.example/a.jpg'), false);
+const cursorPage = helpers.conversationPageAdvance({ items: [{ id: 'a' }, { id: 'b' }], cursor: 'next' }, 2);
+assert.equal(cursorPage.cursor, 'next');
+assert.equal(cursorPage.offsetDelta, 2);
+assert.equal(cursorPage.done, false);
+const finishedPage = helpers.conversationPageAdvance({ items: [{ id: 'a' }], has_more: false }, 100);
+assert.equal(finishedPage.cursor, '');
+assert.equal(finishedPage.offsetDelta, 1);
+assert.equal(finishedPage.done, true);
+assert.equal(
+  helpers.conversationPageAdvance({ items: new Array(100).fill({ id: 'a' }) }, 100).done,
+  false
+);
+assert.equal(helpers.conversationPageAdvance({ items: [], cursor: null }, 100).done, true);
+assert.equal(helpers.conversationPageAdvance({ items: [], cursor: 'again' }, 100).done, true);
+assert.equal(helpers.getScriptTranslation('block.canvas', {}, 'zh-CN'), '画布');
+assert.equal(helpers.getScriptTranslation('block.canvas', {}, 'zh-TW'), '畫布');
+assert.equal(helpers.getScriptTranslation('block.app', {}, 'zh-TW'), '互動應用');
+
+const plainMessages = helpers.extractConversationMessages({
+  mapping: {
+    root: {
+      parent: null,
+      children: ['user'],
+      message: {
+        id: 'plain',
+        author: { role: 'assistant' },
+        content: { content_type: 'text', parts: ['Hello **world**'] },
+      },
+    },
+  },
+});
+assert.equal(plainMessages.length, 1);
+assert.equal(plainMessages[0].content, 'Hello **world**');
+assert.equal(helpers.looksLikeDilSource(plainMessages[0].content), false);
+
+const dilSource = 'Intro\n\n{@body const [tab,setTab] = DIL.useState("overview")}\n<box><title>{tab}</title>World</box>';
+assert.equal(helpers.stripDilSource(dilSource), 'Intro\n\nWorld');
+assert.equal(helpers.readDilFallback({ model_dil_v2: { fallbackMarkdown: ' Readable ' } }), 'Readable');
+
+const intelligentMessages = helpers.extractConversationMessages({
+  mapping: {
+    root: { parent: null, children: ['user'] },
+    user: {
+      parent: 'root',
+      children: ['thought'],
+      message: {
+        id: 'user-1',
+        author: { role: 'user' },
+        content: { content_type: 'text', parts: ['Hi'] },
+      },
+    },
+    thought: {
+      parent: 'user',
+      children: ['tool'],
+      message: {
+        id: 'thought-1',
+        author: { role: 'assistant' },
+        content: {
+          content_type: 'thoughts',
+          thoughts: [{ summary: 'Plan', content: 'Check the docs' }],
+        },
+        metadata: { is_visually_hidden_from_conversation: true },
+      },
+    },
+    tool: {
+      parent: 'thought',
+      children: ['canvas'],
+      message: {
+        id: 'tool-1',
+        author: { role: 'tool', name: 'python' },
+        content: { content_type: 'execution_output', text: '42' },
+      },
+    },
+    canvas: {
+      parent: 'tool',
+      children: ['answer'],
+      message: {
+        id: 'canvas-1',
+        author: { role: 'tool', name: 'canmore.create_textdoc' },
+        recipient: 'canmore.create_textdoc',
+        content: {
+          content_type: 'code',
+          text: JSON.stringify({ name: 'ADR', type: 'document', content: '# Decision\n\nUse Postgres.' }),
+        },
+      },
+    },
+    answer: {
+      parent: 'canvas',
+      children: [],
+      message: {
+        id: 'answer-1',
+        author: { role: 'assistant' },
+        content: {
+          content_type: 'text',
+          parts: [
+            `${dilSource}\n<AppBlock title="Drum Lab"><button>Play</button></AppBlock>`,
+          ],
+        },
+        metadata: {
+          model_dil_v2: {
+            fallbackMarkdown: 'Readable answer\n\n![lamb](https://evil.example/a.jpg)\n\n![chart](https://images.openai.com/chart.png)',
+            appData: {
+              opGenui: {
+                componentResults: {
+                  image: {
+                    componentName: 'AsyncImage',
+                    state: {
+                      images: [{
+                        content_url: 'https://images.openai.com/chart.png',
+                        url: 'https://evil.example/a.jpg',
+                        query: 'lamb',
+                      }],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+});
+assert.equal(intelligentMessages.length, 2);
+assert.equal(intelligentMessages[0].content, 'Hi');
+assert.match(intelligentMessages[1].content, /:::reasoning/);
+assert.match(intelligentMessages[1].content, /Check the docs/);
+assert.match(intelligentMessages[1].content, /:::tool/);
+assert.match(intelligentMessages[1].content, /42/);
+assert.match(intelligentMessages[1].content, /:::canvas/);
+assert.match(intelligentMessages[1].content, /Use Postgres/);
+assert.match(intelligentMessages[1].content, /Readable answer/);
+assert.doesNotMatch(intelligentMessages[1].content, /\{@body/);
+assert.doesNotMatch(intelligentMessages[1].content, /evil\.example/);
+assert.match(intelligentMessages[1].content, /<!-- image:https:\/\/images\.openai\.com\/chart\.png -->/);
+assert.match(intelligentMessages[1].content, /:::app/);
+assert.match(intelligentMessages[1].content, /Drum Lab/);
+assert.equal(intelligentMessages[1].images.length, 1);
+assert.equal(intelligentMessages[1].images[0].url, 'https://images.openai.com/chart.png');
+assert.equal(intelligentMessages[1].images[0].source, 'genui');
+
+const legacyCode = helpers.extractConversationMessages({
+  mapping: {
+    root: {
+      parent: null,
+      children: [],
+      message: {
+        id: 'code-1',
+        author: { role: 'assistant' },
+        content: { content_type: 'code', language: 'python', text: 'print(1)' },
+      },
+    },
+  },
+});
+assert.match(legacyCode[0].content, /print\(1\)/);
 
 console.log('filename helpers ok');

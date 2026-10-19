@@ -3,7 +3,7 @@
 // @name:zh-CN   ChatGPT 通用导出器（Markdown 支持）
 // @name:zh-TW   ChatGPT 通用匯出器（Markdown 支援）
 // @namespace    https://greasyfork.org/users/1616937-owlct
-// @version      1.3.6
+// @version      1.4.0
 // @description  Export ChatGPT conversations from personal, project, and team workspaces to local ZIP archives with JSON, Markdown, assets, and an offline reader.
 // @description:zh-CN  将 ChatGPT 个人、项目和团队空间对话导出为本地 ZIP，包含 JSON、Markdown、资源文件和离线阅读器。
 // @description:zh-TW  將 ChatGPT 個人、專案和團隊工作區對話匯出為本機 ZIP，包含 JSON、Markdown、資源檔案和離線閱讀器。
@@ -19,10 +19,12 @@
 // ==/UserScript==
 
 /* ============================================================
-    v1.3.6 变更 (Greasy Fork 提交元数据)
+    v1.4.0 变更 (ChatGPT Intelligent UI)
     ------------------------------------------------------------
-    • 补充 Greasy Fork 可识别的多语言 @name / @description
-    • 去掉手写 @downloadURL / @updateURL，交给 Greasy Fork 自动生成
+    • 浮动按钮被新界面卸掉后会重新挂上，并避开底部输入栏
+    • 助手回复优先使用 model_dil_v2.fallbackMarkdown，不执行 DIL / AppBlock
+    • Markdown 保留思考摘要、Canvas 文档、工具输出；只下载 OpenAI 托管图片
+    • 会话列表同时接受 offset 与 cursor；令牌仍只从本站请求和 /api/auth/session 读取
     ========================================================== */
 
 (function () {
@@ -36,6 +38,7 @@
     const PROJECT_SIDEBAR_LIMIT = 50;
     let accessToken = null;
     let capturedWorkspaceIds = new Set(); // 使用Set存储网络拦截到的ID，确保唯一性
+    let supplementalWorkspaceIds = new Set(); // 账号目录里看到的 ID，只用于团队选择，不自动加到每次请求上
 
     const SCRIPT_FALLBACK_LOCALE = 'en-US';
     const SCRIPT_LOCALES = {
@@ -124,7 +127,12 @@
             'error.fileDownloadUrlFailed': 'Failed to get file download URL ({status})',
             'error.imageDownloadFailed': 'Image download failed ({status})',
             'error.fileDownloadFailed': 'File download failed ({status})',
-            'error.noDownloadUrl': 'No available download URL'
+            'error.noDownloadUrl': 'No available download URL',
+            'block.reasoning': 'Thinking',
+            'block.thoughtFor': 'Thought for {seconds}s',
+            'block.canvas': 'Canvas',
+            'block.tool': 'Tool',
+            'block.app': 'Interactive app'
         },
         'zh-CN': {
             'button.export': '导出对话',
@@ -211,7 +219,12 @@
             'error.fileDownloadUrlFailed': '文件下载链接获取失败 ({status})',
             'error.imageDownloadFailed': '图片下载失败 ({status})',
             'error.fileDownloadFailed': '文件下载失败 ({status})',
-            'error.noDownloadUrl': '没有可用下载链接'
+            'error.noDownloadUrl': '没有可用下载链接',
+            'block.reasoning': '思考',
+            'block.thoughtFor': '已思考 {seconds} 秒',
+            'block.canvas': '画布',
+            'block.tool': '工具',
+            'block.app': '交互应用'
         }
     };
 
@@ -232,7 +245,8 @@
             ['有效', '有效'], ['请求', '要求'], ['来源', '來源'], ['开始', '開始'], ['确保', '確保'],
             ['登录', '登入'], ['侧边栏', '側邊欄'], ['预览', '預覽'], ['会话', '對話'], ['浏览器', '瀏覽器'],
             ['当前', '目前'], ['剩余', '剩餘'], ['仅', '僅'], ['按', '依'], ['个', '個'], ['条', '則'],
-            ['请', '請'], ['这个', '這個'], ['一个', '一個']
+            ['请', '請'], ['这个', '這個'], ['一个', '一個'],
+            ['画布', '畫布'], ['交互', '互動'], ['应用', '應用']
         ];
         const converted = {};
         Object.entries(source).forEach(([key, value]) => {
@@ -294,14 +308,14 @@
     (function interceptNetwork() {
         const rawFetch = window.fetch;
         window.fetch = async function (resource, options) {
-            tryCaptureToken(options?.headers);
-            if (options?.headers?.['ChatGPT-Account-Id']) {
-                const id = options.headers['ChatGPT-Account-Id'];
-                if (id && !capturedWorkspaceIds.has(id)) {
-                    console.log('🎯 [Fetch] 捕获到 Workspace ID:', id);
-                    capturedWorkspaceIds.add(id);
+            try {
+                tryCaptureToken(options?.headers);
+                tryCaptureWorkspace(options?.headers);
+                if (typeof Request !== 'undefined' && resource instanceof Request) {
+                    tryCaptureToken(resource.headers);
+                    tryCaptureWorkspace(resource.headers);
                 }
-            }
+            } catch (_) {}
             return rawFetch.apply(this, arguments);
         };
 
@@ -311,11 +325,8 @@
                 if (this.readyState === 4) {
                     try {
                         tryCaptureToken(this.getRequestHeader('Authorization'));
-                        const id = this.getRequestHeader('ChatGPT-Account-Id');
-                        if (id && !capturedWorkspaceIds.has(id)) {
-                            console.log('🎯 [XHR] 捕获到 Workspace ID:', id);
-                            capturedWorkspaceIds.add(id);
-                        }
+                        tryCaptureToken(this.getRequestHeader('X-Authorization'));
+                        tryCaptureWorkspace(this.getRequestHeader('ChatGPT-Account-Id'));
                     } catch (_) {}
                 }
             });
@@ -323,29 +334,114 @@
         };
     })();
 
+    function headerValue(headers, name) {
+        if (!headers) return '';
+        if (typeof headers === 'string') {
+            return name.toLowerCase() === 'authorization' ? headers : '';
+        }
+        if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+            return headers.get(name) || '';
+        }
+        if (typeof headers !== 'object') return '';
+        const target = name.toLowerCase();
+        for (const key of Object.keys(headers)) {
+            if (String(key).toLowerCase() === target && headers[key]) return headers[key];
+        }
+        return '';
+    }
+
+    function rememberAccessToken(token) {
+        const value = String(token || '').trim();
+        if (!value || value.toLowerCase() === 'dummy') return '';
+        accessToken = value;
+        rememberTokenAccounts(value);
+        return value;
+    }
+
     function tryCaptureToken(header) {
         if (!header) return;
-        const h = typeof header === 'string' ? header : header instanceof Headers ? header.get('Authorization') : header.Authorization || header.authorization;
-        if (h?.startsWith('Bearer ')) {
-        const token = h.slice(7);
-        // [v8.2.0 修复] 在捕获源头增加验证，拒绝已知的无效占位符Token
-        if (token && token.toLowerCase() !== 'dummy') {
-            accessToken = token;
+        const values = typeof header === 'string'
+            ? [header]
+            : [headerValue(header, 'Authorization'), headerValue(header, 'X-Authorization')];
+        values.forEach(value => {
+            if (typeof value === 'string' && value.startsWith('Bearer ')) {
+                rememberAccessToken(value.slice(7));
+            }
+        });
+    }
+
+    function tryCaptureWorkspace(header) {
+        const id = typeof header === 'string' ? header : headerValue(header, 'ChatGPT-Account-Id');
+        if (id && !capturedWorkspaceIds.has(id)) {
+            console.log('🎯 捕获到 Workspace ID:', id);
+            capturedWorkspaceIds.add(id);
         }
+    }
+
+    function decodeJwtPayload(token) {
+        try {
+            const part = String(token || '').split('.')[1];
+            if (!part) return null;
+            const padded = part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '=');
+            if (typeof atob !== 'function') return null;
+            const binary = atob(padded);
+            const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+            const json = typeof TextDecoder !== 'undefined'
+                ? new TextDecoder().decode(bytes)
+                : binary;
+            return JSON.parse(json);
+        } catch (_) {
+            return null;
         }
+    }
+
+    function rememberTokenAccounts(token) {
+        const payload = decodeJwtPayload(token);
+        const auth = payload?.['https://api.openai.com/auth'];
+        const accountId = auth?.chatgpt_account_id || auth?.account_id || payload?.chatgpt_account_id;
+        if (accountId) supplementalWorkspaceIds.add(String(accountId));
     }
 
     async function ensureAccessToken() {
         if (accessToken) return accessToken;
-        try {
-            const session = await (await fetch('/api/auth/session?unstable_client=true')).json();
-            if (session.accessToken) {
-                accessToken = session.accessToken;
-                return accessToken;
-            }
-        } catch (_) {}
+        const sessionUrls = ['/api/auth/session', '/api/auth/session?unstable_client=true'];
+        for (const url of sessionUrls) {
+            try {
+                const response = await fetch(url, { credentials: 'include' });
+                if (!response.ok) continue;
+                const session = await response.json();
+                const token = rememberAccessToken(session?.accessToken || session?.access_token);
+                if (token) return token;
+            } catch (_) {}
+        }
         alert(t('alert.accessTokenUnavailable'));
         return null;
+    }
+
+    async function loadAccountDirectory() {
+        try {
+            if (!accessToken) {
+                const response = await fetch('/api/auth/session', { credentials: 'include' });
+                if (response.ok) {
+                    const session = await response.json();
+                    rememberAccessToken(session?.accessToken || session?.access_token);
+                }
+            }
+            if (!accessToken) return;
+            const headers = buildApiHeaders(null);
+            const response = await fetch('/backend-api/accounts/check/v4-2023-04-27', {
+                headers,
+                credentials: 'include'
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            const accounts = data?.accounts;
+            if (!accounts || typeof accounts !== 'object') return;
+            Object.values(accounts).forEach(entry => {
+                const id = entry?.account?.account_id || entry?.account?.id;
+                if (id) supplementalWorkspaceIds.add(String(id));
+            });
+        } catch (_) {}
     }
 
     // --- 辅助函数 ---
@@ -436,9 +532,78 @@
      * @returns {string|null} - 返回设备ID或null
      */
     function getOaiDeviceId() {
-        const cookieString = document.cookie;
-        const match = cookieString.match(/oai-did=([^;]+)/);
-        return match ? match[1] : null;
+        const cookieString = document.cookie || '';
+        const patterns = [
+            /(?:^|;\s*)oai-did=([^;]+)/,
+            /(?:^|;\s*)oai-device-id=([^;]+)/
+        ];
+        for (const pattern of patterns) {
+            const match = cookieString.match(pattern);
+            if (match?.[1]) {
+                try {
+                    return decodeURIComponent(match[1]);
+                } catch (_) {
+                    return match[1];
+                }
+            }
+        }
+        try {
+            const keys = ['oai-did', 'oai-device-id', 'oaiDeviceId'];
+            for (const key of keys) {
+                const value = localStorage.getItem(key);
+                if (value && value !== 'null' && value !== 'undefined') {
+                    return String(value).replace(/^"|"$/g, '');
+                }
+            }
+        } catch (_) {}
+        return null;
+    }
+
+    function buildApiHeaders(workspaceId) {
+        const headers = {};
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+        const deviceId = getOaiDeviceId();
+        if (deviceId) headers['oai-device-id'] = deviceId;
+        if (workspaceId) headers['ChatGPT-Account-Id'] = workspaceId;
+        return headers;
+    }
+
+    function conversationPageAdvance(page, limit) {
+        const items = Array.isArray(page?.items) ? page.items : [];
+        const rawCursor = page?.cursor;
+        const cursor = typeof rawCursor === 'string'
+            ? rawCursor
+            : (typeof rawCursor === 'number' && rawCursor ? String(rawCursor) : '');
+        if (cursor) {
+            if (items.length === 0) return { cursor: '', offsetDelta: 0, done: true };
+            return { cursor, offsetDelta: items.length, done: false };
+        }
+        if (typeof page?.has_more === 'boolean') {
+            return { cursor: '', offsetDelta: items.length, done: !page.has_more || items.length === 0 };
+        }
+        return {
+            cursor: '',
+            offsetDelta: items.length,
+            done: items.length === 0 || items.length < limit
+        };
+    }
+
+    function isFirstPartyAssetUrl(url) {
+        const value = String(url || '').trim();
+        if (!value) return false;
+        if (value.startsWith('/') && !value.startsWith('//')) return true;
+        try {
+            const host = new URL(value).hostname.toLowerCase();
+            return host === 'chatgpt.com'
+                || host.endsWith('.chatgpt.com')
+                || host === 'chat.openai.com'
+                || host === 'openai.com'
+                || host.endsWith('.openai.com')
+                || host.endsWith('.oaistatic.com')
+                || host.endsWith('.oaiusercontent.com');
+        } catch (_) {
+            return false;
+        }
     }
 
     function generateUniqueFilename(convData) {
@@ -757,6 +922,256 @@
         return null;
     }
 
+    function looksLikeDilSource(text) {
+        return /\{@body\b|\{#if\b|\{#each\b|<AppBlock\b|<\/?(?:box|row|col|grid|text|title|button|AsyncImage)\b|\bDIL\.useState\b/i.test(String(text || ''));
+    }
+
+    function scanToMatchingBrace(text, openIndex) {
+        let depth = 0;
+        let quote = '';
+        for (let i = openIndex; i < text.length; i++) {
+            const ch = text[i];
+            if (quote) {
+                if (ch === '\\') { i += 1; continue; }
+                if (ch === quote) quote = '';
+                continue;
+            }
+            if (ch === '"' || ch === '\'' || ch === '`') { quote = ch; continue; }
+            if (ch === '{') depth += 1;
+            else if (ch === '}') {
+                depth -= 1;
+                if (depth === 0) return i;
+            }
+        }
+        return text.length - 1;
+    }
+
+    function stripDilSource(text) {
+        const source = String(text || '').replace(/<AppBlock\b[^>]*>[\s\S]*?<\/AppBlock>/gi, '\n');
+        const directiveStarts = ['{@body', '{#if', '{#each', '{:elif', '{:else'];
+        let withoutDirectives = '';
+        for (let i = 0; i < source.length; i++) {
+            const slice = source.slice(i);
+            if (slice.startsWith('{/if}') || slice.startsWith('{/each}')) {
+                i += slice.startsWith('{/if}') ? 4 : 6;
+                continue;
+            }
+            const matched = directiveStarts.find(token => slice.startsWith(token));
+            if (!matched) {
+                withoutDirectives += source[i];
+                continue;
+            }
+            i = scanToMatchingBrace(source, i);
+        }
+        const withoutTags = withoutDirectives.replace(/<\/?[A-Za-z][\w:-]*\b[^>]*\/?>/g, '');
+        const withoutExpr = withoutTags.replace(/\{[^{}\n]{0,400}\}/g, match => {
+            const inner = match.slice(1, -1).trim();
+            if (!inner) return '';
+            if (/^[A-Za-z_$][\w$.]*(\([^)]*\))?$/.test(inner) || /[=()[\].]/.test(inner)) return '';
+            return match;
+        });
+        return withoutExpr.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    function readDilDocument(metadata) {
+        if (!metadata || typeof metadata !== 'object') return null;
+        const doc = metadata.model_dil_v2 || metadata.model_dil || metadata.modelDil || null;
+        return doc && typeof doc === 'object' ? doc : null;
+    }
+
+    function readDilFallback(metadata) {
+        const text = readDilDocument(metadata)?.fallbackMarkdown;
+        return typeof text === 'string' ? text.trim() : '';
+    }
+
+    function extractAppBlocks(text) {
+        const blocks = [];
+        const pattern = /<AppBlock\b([^>]*)>([\s\S]*?)<\/AppBlock>/gi;
+        let match;
+        while ((match = pattern.exec(String(text || '')))) {
+            const attrs = match[1] || '';
+            const titleMatch = attrs.match(/\btitle\s*=\s*"([^"]*)"/i) || attrs.match(/\btitle\s*=\s*'([^']*)'/i);
+            blocks.push({
+                title: titleMatch ? titleMatch[1] : '',
+                html: String(match[2] || '').trim()
+            });
+        }
+        return blocks;
+    }
+
+    function fenceCode(code, lang) {
+        const body = String(code || '');
+        const longest = (body.match(/`{3,}/g) || []).reduce((max, run) => Math.max(max, run.length), 2);
+        const fence = '`'.repeat(longest + 1);
+        return `${fence}${lang || ''}\n${body}\n${fence}`;
+    }
+
+    function parseJsonObject(text) {
+        if (typeof text !== 'string') return null;
+        const trimmed = text.trim();
+        if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+        try {
+            const value = JSON.parse(trimmed);
+            return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function inspectCanvasMessage(msg) {
+        const recipient = `${msg?.recipient || ''} ${msg?.author?.name || ''}`;
+        const metadata = msg?.metadata || {};
+        const canvasMeta = metadata.canvas || metadata.textdoc || metadata.canmore || null;
+        const signaled = /canmore|textdoc|canvas/i.test(recipient) || Boolean(canvasMeta);
+        const content = msg?.content || {};
+        const direct = typeof content.text === 'string' ? content.text : '';
+        const parsed = parseJsonObject(direct);
+        const body = (typeof parsed?.content === 'string' && parsed.content)
+            || (typeof parsed?.textdoc?.content === 'string' && parsed.textdoc.content)
+            || (typeof canvasMeta?.content === 'string' && canvasMeta.content)
+            || '';
+        if (!body) return null;
+        const type = String(parsed?.type || parsed?.textdoc_type || canvasMeta?.textdoc_type || canvasMeta?.type || '');
+        if (!signaled && type !== 'document' && type !== 'code' && type !== 'text') return null;
+        const title = parsed?.name || parsed?.title || parsed?.textdoc?.title || canvasMeta?.title || canvasMeta?.name || '';
+        return { title: String(title || ''), type, body: String(body) };
+    }
+
+    function inspectToolMessage(msg) {
+        const role = msg?.author?.role;
+        const content = msg?.content || {};
+        const contentType = String(content.content_type || '');
+        const sideTypes = ['code', 'execution_output', 'computer_output', 'tether_browsing_display', 'tether_quote', 'system_error', 'sonic_webpage'];
+        const toolLike = role === 'tool' || (role === 'assistant' && sideTypes.includes(contentType) && contentType !== 'code');
+        if (!toolLike || inspectCanvasMessage(msg)) return null;
+        let text = '';
+        if (typeof content.text === 'string') text = content.text;
+        else if (typeof content.summary === 'string' && content.summary) text = content.summary;
+        else if (typeof content.result === 'string') text = content.result;
+        else if (Array.isArray(content.parts)) text = content.parts.filter(part => typeof part === 'string').join('\n');
+        text = String(text || '').trim();
+        const images = [];
+        const screenshot = content.screenshot || content.image || content.asset || null;
+        const inspected = inspectImageAsset(screenshot?.image_asset || screenshot);
+        if (inspected) images.push({ ...inspected, source: 'tool' });
+        if (!text && images.length === 0) return null;
+        const lang = content.language && content.language !== 'unknown' ? String(content.language) : '';
+        return {
+            name: String(msg?.author?.name || msg?.recipient || contentType || 'tool'),
+            text,
+            lang,
+            contentType,
+            images
+        };
+    }
+
+    function formatThoughts(content) {
+        const thoughts = Array.isArray(content?.thoughts) ? content.thoughts : [];
+        return thoughts.map(thought => {
+            const summary = String(thought?.summary || '').trim();
+            const body = String(thought?.content || (Array.isArray(thought?.chunks) ? thought.chunks.join('') : '') || '').trim();
+            if (summary && body && summary !== body) return `**${summary}**\n\n${body}`;
+            return body || summary;
+        }).filter(Boolean).join('\n\n');
+    }
+
+    function emptySideChannel() {
+        return { thinking: [], recap: '', tools: [], canvases: [], images: [] };
+    }
+
+    function cloneSideChannel(side) {
+        const source = side || emptySideChannel();
+        return {
+            thinking: source.thinking.slice(),
+            recap: source.recap || '',
+            tools: source.tools.slice(),
+            canvases: source.canvases.slice(),
+            images: source.images.map(image => ({ ...image }))
+        };
+    }
+
+    function hasSideChannel(side) {
+        return Boolean(side && (side.thinking.length || side.recap || side.tools.length || side.canvases.length || side.images.length));
+    }
+
+    function formatToolBlock(tool) {
+        const heading = `**${t('block.tool')}${tool.name ? `: ${tool.name}` : ''}**`;
+        let body = tool.text || '';
+        if (tool.contentType === 'code' || tool.lang || tool.contentType === 'execution_output' || tool.contentType === 'tether_browsing_display' || tool.contentType === 'system_error') {
+            body = body ? fenceCode(body, tool.lang || '') : '';
+        }
+        return `:::tool\n${heading}\n\n${body}\n:::`;
+    }
+
+    function formatSideChannel(side) {
+        if (!hasSideChannel(side)) return '';
+        const chunks = [];
+        if (side.thinking.length || side.recap) {
+            const heading = side.recap || t('block.reasoning');
+            const body = side.thinking.filter(Boolean).join('\n\n');
+            chunks.push(`:::reasoning\n**${heading}**${body ? `\n\n${body}` : ''}\n:::`);
+        }
+        side.canvases.forEach(canvas => {
+            const label = canvas.title ? `${t('block.canvas')}: ${canvas.title}` : t('block.canvas');
+            const body = canvas.type === 'code' ? fenceCode(canvas.body, '') : canvas.body;
+            chunks.push(`:::canvas\n**${label}**\n\n${body}\n:::`);
+        });
+        side.tools.forEach(tool => chunks.push(formatToolBlock(tool)));
+        return chunks.join('\n\n');
+    }
+
+    function formatAppBlocks(blocks) {
+        return (blocks || []).filter(block => block?.html).map(block => {
+            const label = block.title ? `${t('block.app')}: ${block.title}` : t('block.app');
+            return `:::app\n**${label}**\n\n${fenceCode(block.html, 'html')}\n:::`;
+        }).join('\n\n');
+    }
+
+    function collectGenuiImages(metadata, images) {
+        const results = readDilDocument(metadata)?.appData?.opGenui?.componentResults;
+        if (!results || typeof results !== 'object') return;
+        Object.values(results).forEach(result => {
+            const state = result?.state;
+            if (!state || typeof state !== 'object') return;
+            const candidates = [];
+            if (Array.isArray(state.images)) candidates.push(...state.images);
+            if (state.image && typeof state.image === 'object') candidates.push(state.image);
+            candidates.forEach(img => {
+                if (!img || typeof img !== 'object') return;
+                const contentUrl = img.content_url || img.download_url || '';
+                const pageUrl = img.url || '';
+                const downloadUrl = isFirstPartyAssetUrl(contentUrl)
+                    ? contentUrl
+                    : (isFirstPartyAssetUrl(pageUrl) ? pageUrl : '');
+                const pointer = img.asset_pointer || img.file_id || img.id || downloadUrl;
+                if (!pointer) return;
+                addImageIfMissing(images, {
+                    asset_pointer: pointer,
+                    url: downloadUrl || null,
+                    content_type: img.content_type || img.mime_type || null,
+                    file_id: img.file_id || null,
+                    dispositionLabel: String(img.alt || img.title || img.query || result?.componentName || 'image').slice(0, 200)
+                }, 'genui');
+            });
+        });
+    }
+
+    function rewriteRemoteMarkdownImages(text, images) {
+        return String(text || '').replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (full, alt, url) => {
+            if (!isFirstPartyAssetUrl(url)) return alt || '';
+            let image = (images || []).find(item => item?.url === url || item?.asset_pointer === url);
+            if (!image) {
+                addImageIfMissing(images, {
+                    asset_pointer: url,
+                    url,
+                    dispositionLabel: String(alt || 'image').slice(0, 200)
+                }, 'markdown');
+                image = (images || []).find(item => item?.url === url || item?.asset_pointer === url);
+            }
+            return image ? `\n\n<!-- image:${image.asset_pointer} -->\n` : (alt || '');
+        }).replace(/<img\b[^>]*>/gi, '');
+    }
+
     function extractConversationMessages(convData) {
         const mapping = convData?.mapping;
         if (!mapping) return [];
@@ -796,7 +1211,7 @@
                 return text.includes('file') || text.includes('attachment');
             };
 
-            if (contentType === 'text') {
+            if (contentType === 'text' || !contentType) {
                 parts.forEach(part => collectTextPart(part, textParts, images, files));
             } else if (isImageContentType(contentType)) {
                 // 旧格式: content.image_asset 嵌套; 新格式: content 本身就是 asset
@@ -818,9 +1233,21 @@
                         collectTextPart(part, textParts, images, files);
                     }
                 });
+            } else if (contentType === 'audio_transcription') {
+                const transcript = content.text || content.transcript || '';
+                if (transcript) textParts.push(String(transcript));
+                parts.forEach(part => collectTextPart(part, textParts, images, files));
+            } else if (contentType === 'code' || contentType === 'execution_output' || contentType === 'tether_quote' || contentType === 'system_error') {
+                if (typeof content.text === 'string' && content.text) textParts.push(content.text);
+                parts.forEach(part => collectTextPart(part, textParts, images, files));
+            } else if (contentType === 'tether_browsing_display' || contentType === 'sonic_webpage') {
+                const visible = content.summary || content.result || content.text || '';
+                if (visible) textParts.push(String(visible));
             } else if (contentType && Array.isArray(parts) && parts.length) {
                 // Fallback: any content_type that still carries parts — gather text & be permissive about images.
                 parts.forEach(part => collectTextPart(part, textParts, images, files));
+            } else if (typeof content?.text === 'string' && content.text) {
+                textParts.push(content.text);
             }
 
             const rawText = textParts.filter(Boolean).join('\n');
@@ -848,80 +1275,133 @@
             }
         };
 
-        const traverse = (nodeId) => {
+        const absorbSideImages = (images, side) => {
+            (side?.images || []).forEach(image => addImageIfMissing(images, image, image.source || 'tool'));
+        };
+
+        const pushVisibleMessage = (msg, nodeId, author, body, images, files, footnotes) => {
+            const cleaned = cleanMessageContent(body);
+            const hasText = cleaned && cleaned.length > 0;
+            const hasImages = images.length > 0;
+            const hasFiles = files.length > 0;
+            if (hasText || hasImages || hasFiles) {
+                messages.push({
+                    messageId: msg?.id || nodeId,
+                    role: author === 'user' ? 'user' : (author || 'assistant'),
+                    content: cleaned || '',
+                    create_time: msg?.create_time || null,
+                    footnotes,
+                    images,
+                    files
+                });
+            }
+        };
+
+        const traverse = (nodeId, inherited) => {
             if (!nodeId || visited.has(nodeId)) return;
             visited.add(nodeId);
             const node = mapping[nodeId];
             if (!node) return;
 
+            let pending = cloneSideChannel(inherited);
+            let consumed = false;
             const msg = node.message;
             if (msg) {
                 const author = msg.author?.role;
+                const content = msg.content;
+                const contentType = content?.content_type;
                 const isHidden = msg.metadata?.is_visually_hidden_from_conversation ||
                     msg.metadata?.is_contextual_answers_system_message;
-                if (author && author !== 'system' && !isHidden) {
-                    const content = msg.content;
-                    const { rawText = '', images = [], files: partFiles = [] } = content ? (collectParts(content) || {}) : {};
+                const preamble = Boolean(msg.metadata?.is_thinking_preamble_message);
 
-                    const files = partFiles.slice();
+                if (contentType === 'thoughts') {
+                    const text = formatThoughts(content);
+                    if (text) pending.thinking.push(text);
+                } else if (contentType === 'reasoning_recap') {
+                    const recap = String(content?.content || '').trim();
+                    const duration = Number(msg.metadata?.finished_duration_sec);
+                    pending.recap = recap || (Number.isFinite(duration) && duration > 0
+                        ? t('block.thoughtFor', { seconds: Math.round(duration) })
+                        : pending.recap);
+                } else if (preamble && author !== 'user') {
+                    const collected = content ? collectParts(content) : { rawText: '' };
+                    if (collected.rawText) pending.thinking.push(collected.rawText);
+                } else if (author && author !== 'system') {
+                    const canvas = inspectCanvasMessage(msg);
+                    const tool = inspectToolMessage(msg);
+                    if (canvas && (author === 'tool' || contentType === 'code')) {
+                        pending.canvases.push(canvas);
+                    } else if (tool && (author === 'tool' || tool.contentType !== 'code')) {
+                        pending.tools.push(tool);
+                        (tool.images || []).forEach(image => addImageIfMissing(pending.images, image, 'tool'));
+                    } else if (!(isHidden && author !== 'user')) {
+                        const { rawText: collectedText = '', images = [], files: partFiles = [] } = content ? (collectParts(content) || {}) : {};
+                        const files = partFiles.slice();
+                        const originalText = collectedText;
 
-                    // attachments may carry image pointers or downloadable files.
-                    if (Array.isArray(msg.metadata?.attachments)) {
-                        msg.metadata.attachments.forEach(att => {
-                            if (!att) return;
-                            if (isImageContentType(att.content_type || att.type || att.mime_type)) {
-                                const inspected = inspectImageAsset(att.image_asset || att);
-                                if (inspected) addImageIfMissing(images, inspected, 'attachment');
-                                return;
-                            }
-                            const file = inspectFileAttachment(att);
-                            addFileIfMissing(files, file, 'attachment');
-                        });
-                    }
+                        if (Array.isArray(msg.metadata?.attachments)) {
+                            msg.metadata.attachments.forEach(att => {
+                                if (!att) return;
+                                if (isImageContentType(att.content_type || att.type || att.mime_type)) {
+                                    const inspected = inspectImageAsset(att.image_asset || att);
+                                    if (inspected) addImageIfMissing(images, inspected, 'attachment');
+                                    return;
+                                }
+                                const file = inspectFileAttachment(att);
+                                addFileIfMissing(files, file, 'attachment');
+                            });
+                        }
 
-                    const contentReferences = msg.metadata?.content_references || [];
-                    if (Array.isArray(contentReferences)) {
-                        contentReferences.forEach(ref => {
-                            const file = inspectReferenceFile(ref);
-                            if (!file) return;
-                            addFileIfMissing(files, file, 'content_reference');
-                        });
-                    }
-                    let processedText = rawText;
-                    let footnotes = [];
-                    if (Array.isArray(contentReferences) && contentReferences.length > 0) {
-                        const processed = processContentReferences(rawText, contentReferences);
-                        processedText = processed.text;
-                        footnotes = processed.footnotes;
-                    }
-                    const cleaned = cleanMessageContent(processedText);
+                        const contentReferences = msg.metadata?.content_references || [];
+                        if (Array.isArray(contentReferences)) {
+                            contentReferences.forEach(ref => {
+                                const file = inspectReferenceFile(ref);
+                                if (!file) return;
+                                addFileIfMissing(files, file, 'content_reference');
+                            });
+                        }
 
-                    const hasText = cleaned && cleaned.length > 0;
-                    const hasImages = images.length > 0;
-                    const hasFiles = files.length > 0;
-                    if (hasText || hasImages || hasFiles) {
-                        messages.push({
-                            messageId: msg.id || nodeId,
-                            role: author,
-                            content: cleaned || '',
-                            create_time: msg.create_time || null,
-                            footnotes,
-                            images,
-                            files
-                        });
+                        collectGenuiImages(msg.metadata, images);
+                        absorbSideImages(images, pending);
+                        const fallback = readDilFallback(msg.metadata);
+                        let answerText = fallback || (looksLikeDilSource(originalText) ? stripDilSource(originalText) : originalText);
+                        answerText = rewriteRemoteMarkdownImages(answerText, images);
+                        let footnotes = [];
+                        if (Array.isArray(contentReferences) && contentReferences.length > 0) {
+                            const processed = processContentReferences(answerText, contentReferences);
+                            answerText = processed.text;
+                            footnotes = processed.footnotes;
+                        }
+                        const canvasBlock = canvas && !answerText.includes(String(canvas.body || '').slice(0, 80))
+                            ? formatSideChannel({ thinking: [], recap: '', tools: [], canvases: [canvas], images: [] })
+                            : '';
+                        const body = [
+                            formatSideChannel(pending),
+                            canvasBlock,
+                            answerText,
+                            formatAppBlocks(extractAppBlocks(originalText))
+                        ].filter(Boolean).join('\n\n');
+                        pushVisibleMessage(msg, nodeId, author, body, images, files, footnotes);
+                        pending = emptySideChannel();
+                        consumed = true;
                     }
                 }
             }
 
-            if (Array.isArray(node.children)) {
-                node.children.forEach(childId => traverse(childId));
+            const forChildren = consumed ? emptySideChannel() : pending;
+            if (Array.isArray(node.children) && node.children.length) {
+                node.children.forEach(childId => traverse(childId, cloneSideChannel(forChildren)));
+            } else if (!consumed && hasSideChannel(forChildren)) {
+                const images = [];
+                absorbSideImages(images, forChildren);
+                pushVisibleMessage(msg, nodeId, 'assistant', formatSideChannel(forChildren), images, [], []);
             }
         };
 
         if (rootId) {
-            traverse(rootId);
+            traverse(rootId, emptySideChannel());
         } else {
-            mappingKeys.forEach(traverse);
+            mappingKeys.forEach(id => traverse(id, emptySideChannel()));
         }
 
         return messages;
@@ -1097,16 +1577,34 @@
     }
 
     // --- 导出流程核心逻辑 ---
-    function getExportButton() {
-        let btn = document.getElementById('gpt-rescue-btn');
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = 'gpt-rescue-btn';
-            btn.style.display = 'none';
-            btn.textContent = t('button.export');
-            document.body.appendChild(btn);
+    function styleExportButton(button) {
+        Object.assign(button.style, {
+            position: 'fixed', bottom: '96px', right: '20px', zIndex: '2147483646',
+            padding: '10px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+            fontWeight: 'bold', background: '#10a37f', color: '#fff', fontSize: '14px',
+            boxShadow: '0 3px 12px rgba(0,0,0,.15)', userSelect: 'none', pointerEvents: 'auto',
+            display: 'block'
+        });
+        button.setAttribute('type', 'button');
+        button.setAttribute('data-chatgpt-exporter', '1');
+    }
+
+    function mountExportButton() {
+        if (!document.body) return null;
+        let button = document.getElementById('gpt-rescue-btn');
+        if (!button) {
+            button = document.createElement('button');
+            button.id = 'gpt-rescue-btn';
+            button.textContent = t('button.export');
+            button.onclick = showExportDialog;
         }
-        return btn;
+        styleExportButton(button);
+        if (!button.isConnected) document.body.appendChild(button);
+        return button;
+    }
+
+    function getExportButton() {
+        return mountExportButton();
     }
 
     function makeZipScopeRegistry() {
@@ -1286,22 +1784,35 @@
     function resolveWorkspaceId(workspaceId) {
         if (workspaceId) return workspaceId;
         const match = document.cookie.match(/(?:^|; )_account=([^;]+)/);
-        if (match?.[1]) return match[1];
-        const detectedIds = detectAllWorkspaceIds();
-        return detectedIds.length > 0 ? detectedIds[0] : null;
+        if (match?.[1]) {
+            try {
+                return decodeURIComponent(match[1]);
+            } catch (_) {
+                return match[1];
+            }
+        }
+        // 只采用页面自己发出的账号头。账号目录里的 ID 留给团队选择，避免猜错空间。
+        if (capturedWorkspaceIds.size > 0) return Array.from(capturedWorkspaceIds)[0];
+        if (supplementalWorkspaceIds.size === 1) return Array.from(supplementalWorkspaceIds)[0];
+        return null;
+    }
+
+    async function fetchRootConversationPage(headers, { offset = 0, cursor = '', archived = false } = {}) {
+        const query = new URLSearchParams();
+        query.set('limit', String(PAGE_LIMIT));
+        query.set('order', 'updated');
+        if (cursor) query.set('cursor', cursor);
+        else query.set('offset', String(offset));
+        if (archived) query.set('is_archived', 'true');
+        return fetch(`/backend-api/conversations?${query.toString()}`, {
+            headers,
+            credentials: 'include'
+        });
     }
 
     async function getProjectSpaces(workspaceId, options = {}) {
-        const deviceId = getOaiDeviceId();
-        if (!deviceId) {
-            throw new Error(t('error.deviceIdUnavailable'));
-        }
-        const headers = {
-            'Authorization': `Bearer ${accessToken}`,
-            'oai-device-id': deviceId
-        };
         const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
-        if (resolvedWorkspaceId) { headers['ChatGPT-Account-Id'] = resolvedWorkspaceId; }
+        const headers = buildApiHeaders(resolvedWorkspaceId);
 
         const projects = new Map();
         let cursor = null;
@@ -1319,7 +1830,7 @@
                 query.set('cursor', cursor);
             }
 
-            const r = await fetch(`/backend-api/gizmos/snorlax/sidebar?${query.toString()}`, { headers });
+            const r = await fetch(`/backend-api/gizmos/snorlax/sidebar?${query.toString()}`, { headers, credentials: 'include' });
             if (!r.ok) {
                 throw new Error(t('error.projectSpaceListFailed', { status: r.status }));
             }
@@ -1352,45 +1863,49 @@
 
     async function collectIds(btn, workspaceId, gizmoId) {
         const all = new Set();
-        const deviceId = getOaiDeviceId();
-        if (!deviceId) {
-            throw new Error(t('error.deviceIdUnavailable'));
-        }
-        const headers = {
-            'Authorization': `Bearer ${accessToken}`,
-            'oai-device-id': deviceId
-        };
-        if (workspaceId) { headers['ChatGPT-Account-Id'] = workspaceId; }
+        const headers = buildApiHeaders(workspaceId || null);
 
         if (gizmoId) {
             let cursor = '0';
+            const seenCursors = new Set();
             do {
-                const r = await fetch(`/backend-api/gizmos/${gizmoId}/conversations?cursor=${cursor}`, { headers });
+                if (seenCursors.has(String(cursor))) break;
+                seenCursors.add(String(cursor));
+                const r = await fetch(`/backend-api/gizmos/${gizmoId}/conversations?cursor=${encodeURIComponent(cursor)}`, { headers, credentials: 'include' });
                 if (!r.ok) throw new Error(t('error.projectConversationListFailed', { status: r.status }));
                 const j = await r.json();
                 j.items?.forEach(it => all.add(it.id));
+                if (!Array.isArray(j.items) || j.items.length === 0) break;
                 cursor = j.cursor;
-                await sleep(jitter());
+                if (cursor) await sleep(jitter());
             } while (cursor);
         } else {
             for (const is_archived of [false, true]) {
-                let offset = 0, has_more = true, page = 0;
+                let offset = 0;
+                let cursor = '';
+                let has_more = true;
+                let page = 0;
+                const seenCursors = new Set();
                 do {
                     btn.textContent = `📂 ${t('status.rootPage', {
                         state: is_archived ? t('status.archived') : t('status.active'),
                         page: ++page
                     })}`;
-                    const r = await fetch(`/backend-api/conversations?offset=${offset}&limit=${PAGE_LIMIT}&order=updated${is_archived ? '&is_archived=true' : ''}`, { headers });
+                    const r = await fetchRootConversationPage(headers, { offset, cursor, archived: is_archived });
                     if (!r.ok) throw new Error(t('error.rootConversationListFailed', { status: r.status }));
                     const j = await r.json();
-                    if (j.items && j.items.length > 0) {
-                        j.items.forEach(it => all.add(it.id));
-                        has_more = j.items.length === PAGE_LIMIT;
-                        offset += j.items.length;
+                    j.items?.forEach(it => all.add(it.id));
+                    const advance = conversationPageAdvance(j, PAGE_LIMIT);
+                    if (advance.cursor) {
+                        if (seenCursors.has(advance.cursor)) break;
+                        seenCursors.add(advance.cursor);
+                        cursor = advance.cursor;
                     } else {
-                        has_more = false;
+                        cursor = '';
+                        offset += advance.offsetDelta;
                     }
-                    await sleep(jitter());
+                    has_more = !advance.done;
+                    if (has_more) await sleep(jitter());
                 } while (has_more);
             }
         }
@@ -1436,35 +1951,32 @@
             throw new Error(t('alert.accessTokenUnavailable'));
         }
 
-        const deviceId = getOaiDeviceId();
-        if (!deviceId) {
-            throw new Error(t('error.deviceIdUnavailable'));
-        }
-
-        const headers = {
-            'Authorization': `Bearer ${accessToken}`,
-            'oai-device-id': deviceId
-        };
-        if (workspaceId) { headers['ChatGPT-Account-Id'] = workspaceId; }
+        const headers = buildApiHeaders(workspaceId || null);
 
         const map = new Map();
         const addEntry = (item, extra = {}) => upsertConversationEntry(map, item, extra);
 
         for (const is_archived of [false, true]) {
             let offset = 0;
+            let cursor = '';
             let has_more = true;
+            const seenCursors = new Set();
             do {
-                const r = await fetch(`/backend-api/conversations?offset=${offset}&limit=${PAGE_LIMIT}&order=updated${is_archived ? '&is_archived=true' : ''}`, { headers });
+                const r = await fetchRootConversationPage(headers, { offset, cursor, archived: is_archived });
                 if (!r.ok) throw new Error(t('error.conversationListFailed', { status: r.status }));
                 const j = await r.json();
-                if (j.items && j.items.length > 0) {
-                    j.items.forEach(it => addEntry(it, { is_archived }));
-                    has_more = j.items.length === PAGE_LIMIT;
-                    offset += j.items.length;
+                j.items?.forEach(it => addEntry(it, { is_archived }));
+                const advance = conversationPageAdvance(j, PAGE_LIMIT);
+                if (advance.cursor) {
+                    if (seenCursors.has(advance.cursor)) break;
+                    seenCursors.add(advance.cursor);
+                    cursor = advance.cursor;
                 } else {
-                    has_more = false;
+                    cursor = '';
+                    offset += advance.offsetDelta;
                 }
-                await sleep(jitter());
+                has_more = !advance.done;
+                if (has_more) await sleep(jitter());
             } while (has_more);
         }
 
@@ -1472,13 +1984,17 @@
             const projects = await getProjects(workspaceId);
             for (const project of projects) {
                 let cursor = '0';
+                const seenCursors = new Set();
                 do {
-                    const r = await fetch(`/backend-api/gizmos/${project.id}/conversations?cursor=${cursor}`, { headers });
+                    if (seenCursors.has(String(cursor))) break;
+                    seenCursors.add(String(cursor));
+                    const r = await fetch(`/backend-api/gizmos/${project.id}/conversations?cursor=${encodeURIComponent(cursor)}`, { headers, credentials: 'include' });
                     if (!r.ok) throw new Error(t('error.projectConversationListFailed', { status: r.status }));
                     const j = await r.json();
                     j.items?.forEach(it => addEntry(it, { projectId: project.id, projectTitle: project.title }));
+                    if (!Array.isArray(j.items) || j.items.length === 0) break;
                     cursor = j.cursor;
-                    await sleep(jitter());
+                    if (cursor) await sleep(jitter());
                 } while (cursor);
             }
         }
@@ -1492,17 +2008,8 @@
             throw new Error(t('alert.accessTokenUnavailable'));
         }
 
-        const deviceId = getOaiDeviceId();
-        if (!deviceId) {
-            throw new Error(t('error.deviceIdUnavailable'));
-        }
-
-        const headers = {
-            'Authorization': `Bearer ${accessToken}`,
-            'oai-device-id': deviceId
-        };
         const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
-        if (resolvedWorkspaceId) { headers['ChatGPT-Account-Id'] = resolvedWorkspaceId; }
+        const headers = buildApiHeaders(resolvedWorkspaceId);
 
         const map = new Map();
         const projects = await getProjectSpaces(resolvedWorkspaceId, { conversationsPerGizmo: PROJECT_SIDEBAR_PREVIEW, ownedOnly: true });
@@ -1511,7 +2018,7 @@
             let cursor = '0';
             let fetched = false;
             do {
-                const r = await fetch(`/backend-api/gizmos/${project.id}/conversations?cursor=${cursor}`, { headers });
+                const r = await fetch(`/backend-api/gizmos/${project.id}/conversations?cursor=${encodeURIComponent(cursor)}`, { headers, credentials: 'include' });
                 if (!r.ok) {
                     if (!fetched && Array.isArray(project.conversations) && project.conversations.length > 0) {
                         console.warn(`项目空间对话列表请求失败 (${r.status})，使用侧边栏返回的预览对话。`);
@@ -1529,6 +2036,10 @@
                     projectId: project.id,
                     projectTitle: project.title
                 }));
+                if (!Array.isArray(j.items) || j.items.length === 0) {
+                    cursor = null;
+                    break;
+                }
                 cursor = j.cursor;
                 fetched = true;
                 await sleep(jitter());
@@ -1540,21 +2051,13 @@
     }
 
     async function getConversation(id, workspaceId, retries = 3) {
-        const deviceId = getOaiDeviceId();
-        if (!deviceId) {
-            throw new Error(t('error.deviceIdUnavailable'));
-        }
-        const headers = {
-            'Authorization': `Bearer ${accessToken}`,
-            'oai-device-id': deviceId
-        };
         const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
-        if (resolvedWorkspaceId) { headers['ChatGPT-Account-Id'] = resolvedWorkspaceId; }
+        const headers = buildApiHeaders(resolvedWorkspaceId);
 
         let lastError = null;
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
-                const r = await fetch(`/backend-api/conversation/${id}`, { headers });
+                const r = await fetch(`/backend-api/conversation/${id}`, { headers, credentials: 'include' });
                 if (r.ok) {
                     const j = await r.json();
                     j.__fetched_at = new Date().toISOString();
@@ -1588,11 +2091,11 @@
         if (!raw) return '';
         if (typeof raw !== 'string') return '';
         const trimmed = raw.trim();
-        // 处理 sediment://file_xxx 格式 (新格式)
-        if (trimmed.startsWith('sediment://')) {
-            const path = trimmed.replace('sediment://', '');
-            // sediment://file_0000000066dc72099fe3a16ea00b7e51 → file_0000000066dc72099fe3a16ea00b7e51
-            return path || trimmed.replace(/[^\w.-]/g, '_');
+        // sediment://file_xxx 与 file-service://file-xxx 都是同一类文件指针
+        if (trimmed.startsWith('sediment://') || trimmed.startsWith('file-service://')) {
+            const path = trimmed.replace(/^(?:sediment|file-service):\/\//, '').split(/[?#]/)[0];
+            const leaf = path.split('/').filter(Boolean).pop();
+            return leaf || trimmed.replace(/[^\w.-]/g, '_');
         }
         if (trimmed.startsWith('file://') || trimmed.startsWith('file-') || trimmed.startsWith('file_')) {
             const m = trimmed.match(/[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}/i);
@@ -1827,13 +2330,12 @@
     }
 
     // --- UI 相关函数 ---
-    // (UI部分无变动，此处省略以保持简洁)
     /**
      * [新增] 全面检测函数，返回所有找到的ID
      * @returns {string[]} - 返回包含所有唯一Workspace ID的数组
      */
     function detectAllWorkspaceIds() {
-        const foundIds = new Set(capturedWorkspaceIds); // 从网络拦截的结果开始
+        const foundIds = new Set([...capturedWorkspaceIds, ...supplementalWorkspaceIds]);
 
         // 扫描 __NEXT_DATA__
         try {
@@ -2335,7 +2837,8 @@
                     closeDialog();
                     showConversationPicker({ mode: 'project', workspaceId: null });
                 };
-                const startTeamFlow = (action) => {
+                const startTeamFlow = async (action) => {
+                    await loadAccountDirectory();
                     const detectedIds = detectAllWorkspaceIds();
                     if (detectedIds.length === 1) {
                         const workspaceId = detectedIds[0];
@@ -2398,18 +2901,18 @@
     }
 
     function addBtn() {
-        if (document.getElementById('gpt-rescue-btn')) return;
-        const b = document.createElement('button');
-        b.id = 'gpt-rescue-btn';
-        b.textContent = t('button.export');
-        Object.assign(b.style, {
-            position: 'fixed', bottom: '24px', right: '24px', zIndex: '99997',
-            padding: '10px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-            fontWeight: 'bold', background: '#10a37f', color: '#fff', fontSize: '14px',
-            boxShadow: '0 3px 12px rgba(0,0,0,.15)', userSelect: 'none'
-        });
-        b.onclick = showExportDialog;
-        document.body.appendChild(b);
+        mountExportButton();
+        if (window.__chatgptExporterButtonWatch) return;
+        window.__chatgptExporterButtonWatch = true;
+        const remount = () => {
+            const existing = document.getElementById('gpt-rescue-btn');
+            if (!existing || !existing.isConnected) mountExportButton();
+        };
+        if (typeof MutationObserver !== 'undefined' && document.body) {
+            const observer = new MutationObserver(remount);
+            observer.observe(document.body, { childList: true });
+        }
+        setInterval(remount, 2000);
     }
 
     // --- 脚本启动 ---

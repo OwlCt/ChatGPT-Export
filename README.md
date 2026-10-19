@@ -23,13 +23,14 @@ It is intended for personal backups, archiving project and team-workspace conver
 - **Local caching** — imported conversations and attachments are persisted in browser IndexedDB, so reopening requires no re-import.
 - **Interface and export** — the UI switches between English, Simplified Chinese, and Traditional Chinese with light/dark/system themes and configurable import preferences; the current conversation exports to a PDF whose text remains selectable.
 - **Reading experience** — the sidebar counts by user turn (one prompt and its following reply count as a single item), and longer conversations provide a jump rail on the right.
+- **Intelligent UI** — assistant replies prefer ChatGPT's readable Markdown fallback. Thinking summaries, canvas documents, and tool output are kept as text. Generated interface code is not executed.
 
 ## Installation
 
 1. Install a userscript manager such as Tampermonkey.
 2. Open `Tampermonkey.js` and install it as a userscript.
 3. Visit `https://chatgpt.com/` or `https://chat.openai.com/`.
-4. Click the floating **Export Conversations** button that appears on the page.
+4. Click the floating **Export Conversations** button. If the page replaces its layout, the button is added back above the composer.
 
 ## Usage
 
@@ -102,7 +103,8 @@ The reader instead vendors JSZip `3.10.1` under the repository's `reader/vendor/
 
 - ChatGPT's backend APIs are private and may change without notice.
 - Very large exports may run into browser memory or rate-limit constraints.
-- Whether images and attachments can be exported depends on the resource metadata present in each conversation.
+- Whether images and attachments can be exported depends on the resource metadata present in each conversation. Images hosted by OpenAI are saved; image addresses that only point at other websites are not downloaded.
+- Intelligent UI answers are stored from the Markdown fallback ChatGPT already generates. Interactive state, values computed inside the interface, and live app blocks are not replayed. App blocks are kept as source text.
 - Some team workspaces require opening a team conversation first before the script can detect the workspace.
 - Browsers may delete IndexedDB data under low storage, in private browsing, or when site data is cleared.
 - PDF export opens a separate print window and saves through the browser's print dialog. This design keeps text selectable and lets the browser handle pagination, images, and source-reference layout.

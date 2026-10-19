@@ -155,6 +155,15 @@ assert.match(app, /math-inline/, 'reader should emit inline-math spans for \\(..
 assert.match(app, /getKatexInlineCss/, 'PDF export should inline KaTeX CSS so math renders in print output');
 assert.match(css, /\.math-display/, 'reader should style display-math blocks');
 assert.match(app, /collectFencedDivLines/, 'reader should parse fenced div blocks such as :::writing');
+assert.match(app, /fallbackMarkdown/, 'reader should prefer Intelligent UI markdown fallback');
+assert.match(app, /:::reasoning/, 'reader should keep reasoning summaries');
+assert.match(app, /file-service:\/\//, 'reader should recognize file-service asset pointers');
+assert.match(app, /Offline reader does not load remote images/, 'reader should not fetch remote images while rendering');
+assert.match(app, /if \(\/\^https\?:\/i\.test\(raw\)\) return "";/, 'reader should drop remote markdown image URLs');
+assert.match(css, /\.md-div--reasoning/, 'reader should style reasoning blocks');
+assert.match(en, /"block.reasoning":/, 'English reader locale should name reasoning blocks');
+assert.match(zh, /"block.canvas": "画布"/, 'Simplified Chinese reader locale should name canvas blocks');
+assert.match(zhTw, /"block.app": "互動應用"/, 'Traditional Chinese reader locale should name app blocks');
 assert.match(app, /md-div--/, 'reader should render fenced div blocks as styled containers');
 assert.match(app, /md-div-copy/, 'reader should render a copy button on fenced div cards');
 assert.match(app, /block\.copied/, 'reader should toast when a fenced div is copied');
