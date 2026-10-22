@@ -13,6 +13,7 @@
 // @match        https://chat.openai.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js#sha256=acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e
 // @grant        none
+// @noframes
 // @homepageURL  https://github.com/OwlCt/ChatGPT-Export
 // @supportURL   https://github.com/OwlCt/ChatGPT-Export/issues
 // @source       https://github.com/OwlCt/ChatGPT-Export
@@ -27,6 +28,10 @@
 
 (function () {
     'use strict';
+
+    // 同源 iframe（如 dots 的 _orbit-renderer 角色头像）也会命中 @match，
+    // 在里面注入浮动按钮会盖住角色头像；@noframes 之外再加一道运行时保护。
+    if (window.top !== window.self) return;
 
     // --- 配置与全局变量 ---
     const BASE_DELAY = 600;
